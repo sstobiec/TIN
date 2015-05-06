@@ -1,3 +1,4 @@
 wysylanie jest testowe
 funkcja receiveFile zakonczy dzialanie po 10s bo jest timeout ustawiony po pierwszym receive (1. datagram jest od razu wysłany)
+jakies info to priv ;p
 
