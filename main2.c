@@ -7,35 +7,36 @@
 
 #define SIZEDATAGRAM 512
 
-const char* directoryPath; // katalog z udostep. plikami
+const char* directoryPath;
 int sendfile(FILE* file, struct sockaddr *to);
 int main(int argc, char* argv[])
 {
 	char *command = NULL; // komenda podawana przez uzytkownika
-	char *ptr; // wsk na nazwe pliku 
+	char *ptr; // wsk na nazwe pliku
 	int sizecommand; // rozmiar komendy ( nieuzywany - tylko do wywolania getline)
 	directoryPath = argv[1]; // katalog wybrany przez uzytkownika
 	printf("Katalog glowny ustawiony na: %s \n", directoryPath);
-	
+
 	while(1)
 	{
 	    printf(">");
 	    getline(&command, &sizecommand, stdin); // pobranie komendy
-	    
-	// zamiana 'entera' na koncu stringa na '\0'    
+
+	// zamiana 'entera' na koncu stringa na '\0'
 	if (command [ strlen(command) - 1 ] == '\n' )
             command [ strlen(command) - 1 ] = '\0';
 
 	    if(strstr(command,"find")!=NULL) // jesli w stringu jest find
 	    {
 	        printf("find \n");
-	        ptr = strchr(command, ' '); // znajdz 'spacje' 
+	        ptr = strchr(command, ' '); // znajdz 'spacje'
 		// jak beda 2 spacje albo spacja przed find to juz dzialac nie bedzie - takze nad tym mozna pomyslec
-	        printf("nazwapliku : %s \n", ptr+1); // przesun sie o jedna pozycje dalej ( tutaj jest nazwa pliku)
+	        printf("plik : %s \n", ptr+1); // przesun sie o jedna pozycje dalej ( tutaj jest nazwa pliku)
 
 	    }
 	    else if(strcmp(command, "connect") == 0)
 	    {
+	        sendfile(fopen("/home/piotrek/Dokumenty/wtep.odt", "rb" ), NULL);
 	        printf("connect \n");
 	    }
 	    else if(strcmp(command, "disconnect") == 0)
@@ -53,6 +54,14 @@ int main(int argc, char* argv[])
 	    }
 
 	}
+
+	FILE *file = fopen("/home/piotrek/Pulpit/doc/dokumentacjaV1.pdf", "rb");
+	if(!file)
+	{
+		printf("blad otwarcia pliku"); return 1;
+	}
+
+	sendfile(file,NULL);
 	return 0;
 }
 
@@ -101,17 +110,14 @@ int sendfile(FILE* file, struct sockaddr *to)
                 return 0;
             }
             printf("Blad polaczenia. Ponawiam transfer pakietu... \n");
-            continue;
         }
-        else break;
+        else
+        {
+            // odczyt numer pakietu
+            memcpy(&ack, buffer, sizeof(int)); // zapis z bufora do zmiennej
+            if(ack == 0) break;// jesli odebralismy dobre potwierdzenie to wychodzimy z petli
+        }
 	}
-
-    // odczyt numer pakietu
-    memcpy(&ack, buffer, sizeof(int)); // zapis z bufora do zmiennej
-    if(ack != 0) // jesli odebralismy inny numer datagramu
-    {
-        // tu nie wiem co robimy :D - to powinno byc w petli moze ?
-    }
 
 
     // petla - ilosc obiegow - ilosc datagramow
@@ -146,16 +152,14 @@ int sendfile(FILE* file, struct sockaddr *to)
                     return 0;
                 }
                 printf("Blad polaczenia. Ponawiam transfer pakietu... \n");
-                continue;
             }
-            else break;
+            else
+            {
+                // odczyt numeru potwierdzenia
+                memcpy(&ack, buffer, sizeof(int));
+                if( ack == i ) break; // jesli dobre potwierdzenie
+            }
         }
-
-		memcpy(&ack, buffer, sizeof(int));
-		if( ack != i )
-		{
-			// jw :D
-		}
 
 	}
 	return 1;
