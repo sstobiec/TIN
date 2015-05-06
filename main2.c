@@ -7,7 +7,7 @@
 
 #define SIZEDATAGRAM 512
 
-const char* directoryPath;
+const char* directoryPath; // katalog z udostep. plikami
 int sendfile(FILE* file, struct sockaddr *to);
 int main(int argc, char* argv[])
 {
@@ -31,7 +31,7 @@ int main(int argc, char* argv[])
 	        printf("find \n");
 	        ptr = strchr(command, ' '); // znajdz 'spacje' 
 		// jak beda 2 spacje albo spacja przed find to juz dzialac nie bedzie - takze nad tym mozna pomyslec
-	        printf("plik : %s \n", ptr+1); // przesun sie o jedna pozycje dalej ( tutaj jest nazwa pliku)
+	        printf("nazwapliku : %s \n", ptr+1); // przesun sie o jedna pozycje dalej ( tutaj jest nazwa pliku)
 
 	    }
 	    else if(strcmp(command, "connect") == 0)
