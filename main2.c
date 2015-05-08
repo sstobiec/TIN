@@ -14,10 +14,11 @@
 const char* directoryPath;
 int sendfile(FILE* file, struct sockaddr *to);
 
+struct sockaddr findNetwork(const char* filename);
 
 int main(int argc, char* argv[])
 {
-	
+
 	char *command = NULL; // komenda podawana przez uzytkownika
 	char *ptr; // wsk na nazwe pliku
 	int sizecommand; // rozmiar komendy ( nieuzywany - tylko do wywolania getline)
@@ -39,7 +40,7 @@ int main(int argc, char* argv[])
 	        ptr = strchr(command, ' '); // znajdz 'spacje'
 		// jak beda 2 spacje albo spacja przed find to juz dzialac nie bedzie - takze nad tym mozna pomyslec
 	        printf("plik : %s \n", ptr+1); // przesun sie o jedna pozycje dalej ( tutaj jest nazwa pliku)
-
+            findNetwork(ptr+1);
 	    }
 	    else if(strcmp(command, "connect") == 0)
 	    {
@@ -114,6 +115,7 @@ int sendfile(FILE* file, struct sockaddr *to)
             if( k == 2) // jesli wyslalismy juz 3 razy
             {
                 printf("3 proby nieudane.Zamykam polaczenie... \n");
+                close(sockfd);
                 return 0;
             }
             printf("Blad polaczenia. Ponawiam transfer pakietu... \n");
@@ -136,7 +138,7 @@ int sendfile(FILE* file, struct sockaddr *to)
 		// jesli to ostatni datagram
 		if(i == datagramNumber)
 		{
-			fread(buffer, 1, fileSize-datagramNumber*(SIZEDATAGRAM-4),file);
+			fread(buffer, 1, fileSize % (SIZEDATAGRAM-4),file);
 		}
 		else
 		{
@@ -156,6 +158,7 @@ int sendfile(FILE* file, struct sockaddr *to)
                 if( k == 2)
                 {
                     printf("3 nieudane proby.Zamykam polaczenie... \n");
+                    close(sockfd);
                     return 0;
                 }
                 printf("Blad polaczenia. Ponawiam transfer pakietu... \n");
@@ -169,6 +172,7 @@ int sendfile(FILE* file, struct sockaddr *to)
         }
 
 	}
+	close(sockfd);
 	return 1;
 
 }
@@ -185,7 +189,6 @@ FILE* findResource(char *fileName)
 	}
 	return fp;
 }
-
 
 
 void listen()
@@ -312,3 +315,62 @@ void listen()
 		}
 	}
 }
+struct sockaddr findNetwork(const char* filename)
+{
+    int sockfd; // deskryptor
+    socklen_t * sockSize; // rozmiar struktury okreslajacej posiadacza zasobu
+    char answer; // odpowiedz
+    struct sockaddr_in bc_addr; // adres broadcastowy
+    struct sockaddr resAdress; // adres posiadacza zasobu
+    static int so_broadcast = 1;
+
+    struct timeval sendtimeout; // ustawiamy timeout
+    sendtimeout.tv_sec = 3;
+    sendtimeout.tv_usec = 0;
+
+    // inicjalizacja socketu
+    sockfd = socket(AF_INET,SOCK_DGRAM,0);
+    if(sockfd == -1)
+    {
+        printf("Socket creating error. \n");
+       // return NULL;
+    }
+
+    // ustawienie opcji - broadcastu
+    if(setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, &so_broadcast, sizeof(so_broadcast)) )
+    {
+        printf("Socket option error. \n");
+       // return NULL;
+    }
+
+    // ustawienie adresu
+    bc_addr.sin_family = AF_INET;
+    inet_aton("192.168.1.255", &(bc_addr.sin_addr));
+    bc_addr.sin_port = htons(LISTENPORT);
+
+    // wyslanie zapytania z nazwa pliku
+    sendto(sockfd, filename, strlen(filename),0, (struct sockaddr *)&bc_addr, sizeof(bc_addr) );
+
+    // ustawienie opcji - timeout
+    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO,&sendtimeout,sizeof(sendtimeout));
+
+
+    // tutaj chyba trzeba to zrobic inaczej
+    while(1)
+    {
+        if(recvfrom(sockfd, &answer, 1, 0, &resAdress, (socklen_t*)sockSize ) < 0) // jesli po 3 sek nie ma odpowiedzi
+        { // jesli po 3 sekundach brak odpowiedzi
+            printf("Brak zasobu. \n");
+            close(sockfd);
+
+        }
+        else
+        { // jesli odpowiedz jest pozytywna wychodzimy z petli
+            // ale jak bedzie duzo hostow i caly czas negatywna to chyba bedzie slabo
+            if(answer == RESOURCE_FOUND) break;
+        }
+    }
+
+    return resAdress;
+}
+
