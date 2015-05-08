@@ -1,22 +1,26 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 
 /* UDP serwer */
 
 #define MYPORT 32005
-#define SIZEDATAGRAM 512    // 512B danych
+#define SIZEDATAGRAM 512   // 512B danych
 
 char fname[300];
 
+FILE* receiveFile(char *fileName, int sockfd);
+FILE* findResource(char *fileName);
+void closeProgram();
 
 int main(int argc, char *argv[])
 {
     if(fork() == 0)
     {
         int a = initSocket();
-        receiveFile(NULL, a);
+        receiveFile("/home/sebastian/Pulpit/TIN/ab", a);
     }
     else
     {
@@ -32,21 +36,21 @@ int main(int argc, char *argv[])
         servaddr.sin_addr.s_addr=htonl(INADDR_ANY);
         servaddr.sin_port=htons(MYPORT);
         int whichOne;
-        int counter = 0;
+        int counter = 1;
         int fileSize = 45624,
 
         // JEZELI CHCECIE ZMIENIC LICZBE DATAGRAMOW TO TUTUAJ MOZNA!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
         datagramNumber = 3;
         int i = 0;
         memcpy(sendline, &fileSize, sizeof(int)); // ladujemy rozmiar pliku
-        memcpy(sendline+4, &datagramNumber, sizeof(int)); // ilosc datagramow
-        memcpy(sendline+8, &i, sizeof(int)); // numer ( 0 ) datagramu
+        memcpy(sendline+sizeof(int), &datagramNumber, sizeof(int)); // ilosc datagramow
+        memcpy(sendline+2*sizeof(int), &i, sizeof(int)); // numer ( 0 ) datagramu
 
-        sendto(sockfd1,sendline, SIZEDATAGRAM+4, 0, (struct sockaddr *)&servaddr,sizeof(servaddr));
+        sendto(sockfd1,sendline, SIZEDATAGRAM+sizeof(int), 0, (struct sockaddr *)&servaddr,sizeof(servaddr));
         if(recvfrom(sockfd1,recvmsg, sizeof(int),0,NULL,NULL) == -1) printf("Błąd w recvfrom");
 
 
-        while(fgets(sendline+4, 10000,stdin) != NULL)
+        while(fgets(sendline+sizeof(int), 10000,stdin) != NULL)
         {
             memcpy(sendline, &counter, sizeof(int)); // ladujemy rozmiar pliku
             //do
@@ -105,9 +109,7 @@ int initSocket()
     return sockfd;
 }
 
-
-
-int receiveFile(FILE* file, int sockfd)
+FILE* receiveFile(char *fileName, int sockfd)
 {
         struct sockaddr_in client_addr;
         // określa wielkość struktury sockaddr
@@ -117,9 +119,9 @@ int receiveFile(FILE* file, int sockfd)
         // przechowuje nr datagramu
         int whichOne;
         // zlicza ilosc datagramow ktore nadeszly
-        int counter = 0;
-        int fileSize, datagramNumber;
-        int lastDatagramSize;
+        int counter;
+        int fileSize, datagramNumber, lastDatagramSize, currentSizeDatagram;
+        FILE *fd;
 
         // odebranie rozmiaru pliku, liczby datagramow i rozmiaru ostatniego datagramu
         if(recvfrom(sockfd, mesg, sizeof(int)*3, 0, (struct sockaddr *)&client_addr, &len) == -1)
@@ -148,6 +150,8 @@ int receiveFile(FILE* file, int sockfd)
         // prymitywne zabezpieczenia :p
         if(datagramNumber > 0 && fileSize > 0 && whichOne == 0)
         {
+            fd = fopen(fileName, "ab+");
+
             // ustawiamy timeout
             struct timeval sendtimeout;
             sendtimeout.tv_sec = 10;
@@ -157,15 +161,21 @@ int receiveFile(FILE* file, int sockfd)
             //ustawienie funkcji socketa - timeout'u
             setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO,&sendtimeout,sizeof(sendtimeout));
 
-            int size;
-            //while(--datagramNumber >= 0)
-            while(datagramNumber != counter)
+            counter = 1;
+            currentSizeDatagram = SIZEDATAGRAM + sizeof(int);
+
+            while(datagramNumber >= counter)
             {
-                if(recvfrom(sockfd, mesg, (datagramNumber-1 == counter) ? (lastDatagramSize+4) : (SIZEDATAGRAM+4), 0, (struct sockaddr *)&client_addr, &len) == -1)
+                if(datagramNumber == counter)
+                    currentSizeDatagram = lastDatagramSize + sizeof(int);
+
+                if(recvfrom(sockfd, mesg, currentSizeDatagram, 0, (struct sockaddr *)&client_addr, &len) == -1)
                 {
                     printf("Błąd w recvfrom\nPrzerwane połączenie\n");
                     close(sockfd);
-                    return -1;
+                    // usun plik
+                    remove(fileName);
+                    return NULL;
                 }
 
                 memcpy(&whichOne, mesg, sizeof(int)); // kopiuje numer datagramu
@@ -178,6 +188,7 @@ int receiveFile(FILE* file, int sockfd)
                 {
                     counter++;
                     // nalezy napisac kopiowanie zawartosci :p
+                    fwrite(mesg+sizeof(int), 1, currentSizeDatagram-sizeof(int), fd);
                     printf("%d", whichOne);
                 }
 
@@ -187,16 +198,18 @@ int receiveFile(FILE* file, int sockfd)
 
                 printf("-------------------------------------------------------\n");
                 printf("Odebranow wiadomosc:\n");
-                printf("%s",mesg+4);
+                printf("%s",mesg+sizeof(int));
                 printf("-------------------------------------------------------\n");
             }
         }
+
+        fclose(fd);
         // TESTowe
         printf("Udalo sie\n");
         ///////////////////////////
         close(sockfd);
         // prawidłowe zakonczenie
-        return 0;
+        return fd;
 }
 
 // sprawdza czy dany plik istnieje
@@ -213,7 +226,7 @@ FILE* findResource(char *fileName)
 	return fp;
 }
 
-void closeProgram(int sock)
+void closeProgram()
 {
     exit(0);
 }
