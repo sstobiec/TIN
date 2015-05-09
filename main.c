@@ -29,9 +29,10 @@ char* attach_segment( int shmId );
 int detach_segment(const void *shmaddr);
 
 
-FILE* download(char *fileName, int sockfd);
+FILE* download(char *fileName, int sockfd, int semId, char *shmptr);
 FILE* findResource(char *fileName);
 void closeProgram(int semId, int shmId);
+void info(int semId, char* shmptr);
 
 int main(int argc, char *argv[])
 {
@@ -42,10 +43,10 @@ int main(int argc, char *argv[])
         sem_init(semID);
         // inicjalizuje pamięć dzieloną
         int shmID = shm_init((int) SHM_ID,(int) ROZM_PAM);
-        attach_segment( shmID );
+        char *shmptr = (char*)attach_segment( shmID );
 
         int a = initSocket();
-        download("/home/sebastian/Pulpit/TIN/ab", a);
+        download("/home/sebastian/Pulpit/TIN/ab", a, semID, shmptr);
     }
     else
     {
@@ -134,7 +135,7 @@ int initSocket()
     return sockfd;
 }
 
-FILE* download(char *fileName, int sockfd)
+FILE* download(char *fileName, int sockfd, int semId, char *shmptr)
 {
         struct sockaddr_in client_addr;
         // określa wielkość struktury sockaddr
@@ -224,6 +225,15 @@ FILE* download(char *fileName, int sockfd)
                 // wysyla potwierdzenie
                 sendto(sockfd, ack, sizeof(int), 0, (struct sockaddr *)&client_addr, sizeof(client_addr));
 
+                double wiad = (counter-1.0) / datagramNumber;
+                printf("\n%f\n  %d      %d", wiad, counter, datagramNumber);
+                sem_P(semId);
+                // testowanie czy to gowno w ogole zadziala
+                memcpy(shmptr, &wiad, sizeof(double));
+                sem_V(semId);
+                info(semId, shmptr);
+
+
                 printf("-------------------------------------------------------\n");
                 printf("Odebranow wiadomosc:\n");
                 printf("%s",mesg+sizeof(int));
@@ -264,7 +274,14 @@ void closeProgram(int semId, int shmId)
     exit(0);
 }
 
-
+void info(int semId, char* shmptr)
+{
+    double mesg;
+    sem_P(semId);
+    memcpy(&mesg, shmptr, sizeof(double));
+    sem_V(semId);
+    printf("\n********  %f  **********\n",mesg);
+}
 
 
 
