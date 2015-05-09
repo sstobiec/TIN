@@ -3,24 +3,49 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-
-/* UDP serwer */
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <sys/sem.h>
 
 #define MYPORT 32005
 #define SIZEDATAGRAM 512   // 512B danych
+#define ROZM_PAM 4096
+#define SHM_ID 1234
+#define SEM_KEY 1111
 
 char fname[300];
 
-FILE* receiveFile(char *fileName, int sockfd);
+//semafory
+int sem_create(int semKey);
+int sem_init(int semId);
+int sem_V(int semId);
+int sem_P(int semId);
+int sem_remove(int semId);
+
+// pamiec dzielona
+int shm_init(int sgmId,int size);
+int shm_remove(int shmId);
+char* attach_segment( int shmId );
+int detach_segment(const void *shmaddr);
+
+
+FILE* download(char *fileName, int sockfd);
 FILE* findResource(char *fileName);
-void closeProgram();
+void closeProgram(int semId, int shmId);
 
 int main(int argc, char *argv[])
 {
     if(fork() == 0)
     {
+        // inicjalizuje semafor
+        int semID = sem_create((int) SEM_KEY);
+        sem_init(semID);
+        // inicjalizuje pamięć dzieloną
+        int shmID = shm_init((int) SHM_ID,(int) ROZM_PAM);
+        attach_segment( shmID );
+
         int a = initSocket();
-        receiveFile("/home/sebastian/Pulpit/TIN/ab", a);
+        download("/home/sebastian/Pulpit/TIN/ab", a);
     }
     else
     {
@@ -109,7 +134,7 @@ int initSocket()
     return sockfd;
 }
 
-FILE* receiveFile(char *fileName, int sockfd)
+FILE* download(char *fileName, int sockfd)
 {
         struct sockaddr_in client_addr;
         // określa wielkość struktury sockaddr
@@ -171,7 +196,7 @@ FILE* receiveFile(char *fileName, int sockfd)
 
                 if(recvfrom(sockfd, mesg, currentSizeDatagram, 0, (struct sockaddr *)&client_addr, &len) == -1)
                 {
-                    printf("Błąd w recvfrom\nPrzerwane połączenie\n");
+                    printf("Błąd pobieranie pliku\nPrzerwane połączenie\n");
                     close(sockfd);
                     // usun plik
                     remove(fileName);
@@ -226,8 +251,10 @@ FILE* findResource(char *fileName)
 	return fp;
 }
 
-void closeProgram()
+void closeProgram(int semId, int shmId)
 {
+    int sem_remove(semId);
+    int shm_remove(shmId);
     exit(0);
 }
 
@@ -235,6 +262,105 @@ void closeProgram()
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+// inicjalizacja semafora
+// jezeli blad to zwraca -1
+int sem_create(int semKey)
+{
+    // tworzony semafor
+    int sem_id = semget((key_t) semKey, 1, 0666 | IPC_CREAT);
+
+    return sem_id;
+}
+
+// inicjalizacja semafora wartością 1
+// jezeli blad to zwraca -1
+int sem_init(int semId)
+{
+    // inicjacja semafora wartością 1
+    return semctl(semId, 0, SETVAL, (int)1);
+}
+
+// realizuje podnoszenie semafora
+int sem_V(int semId)
+{
+    struct sembuf bufor_sem;
+
+    bufor_sem.sem_num = 0;
+    bufor_sem.sem_op = 1;
+    bufor_sem.sem_flg = SEM_UNDO;
+
+    if(semop(semId, &bufor_sem, 1) == -1)
+    {
+        perror("Blad przy podnoszeniu semafora");
+        return 0;
+    }
+    return 1;
+}
+
+// realizuje opuszczanie semafora
+int sem_P(int semId)
+{
+    struct sembuf bufor_sem;
+
+    bufor_sem.sem_num = 0;
+    bufor_sem.sem_op = -1;
+    bufor_sem.sem_flg = SEM_UNDO;
+
+    if(semop(semId, &bufor_sem, 1) == -1)
+    {
+        perror("Blad przy opuszczaniu semafora");
+        return 0;
+    }
+    return -1;
+}
+
+// usuwanie semafora
+// jezeli blad to zwraca -1
+int sem_remove(int semId)
+{
+    return semctl(semId, 0 , IPC_RMID, 0);
+}
+
+// inicjalizacja pamięci dzielonej
+// jezeli blad to zwraca -1
+int shm_init(int sgmId, int size)
+{
+    // tworzony jest segment współdzielonej pamięci o kluczu sgmId,  o rozmiarze ROZM_PAM i prawach do zapisu i odczytu
+    int shmid = shmget(sgmId, size, IPC_CREAT|0666);
+
+    return shmid;
+}
+
+// usuwa pamiec dzielona
+// jezeli blad to zwraca -1
+int shm_remove(int shmId)
+{
+    return shmctl(shmId, IPC_RMID, 0);
+}
+
+// utworzony segment włączony zostaje do segmentów danego procesu i zwracany jest adres tego segmentu
+char* attach_segment( int shmId )
+{
+    return (char*) shmat(shmId, NULL, 0);
+};
+
+// shmaddr = typ zwracany przez attach_segment;
+// jezeli blad to zwraca -1
+int detach_segment(const void *shmaddr)
+{
+    return shmdt(shmaddr);
+};
 
 
 
