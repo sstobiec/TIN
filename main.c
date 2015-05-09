@@ -200,6 +200,9 @@ FILE* download(char *fileName, int sockfd)
                     close(sockfd);
                     // usun plik
                     remove(fileName);
+                    // zwolnienie zaalokowanej pamieci
+                    free(ack);
+                    free(mesg);
                     return NULL;
                 }
 
@@ -233,6 +236,9 @@ FILE* download(char *fileName, int sockfd)
         printf("Udalo sie\n");
         ///////////////////////////
         close(sockfd);
+        // zwolnienie zaalokowanej pamieci
+        free(ack);
+        free(mesg);
         // prawidłowe zakonczenie
         return fd;
 }
@@ -253,8 +259,8 @@ FILE* findResource(char *fileName)
 
 void closeProgram(int semId, int shmId)
 {
-    int sem_remove(semId);
-    int shm_remove(shmId);
+    sem_remove(semId);
+    shm_remove(shmId);
     exit(0);
 }
 
