@@ -4,15 +4,19 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <sys/time.h>
+#include <signal.h>
+#include <unistd.h>
 
 #define SIZEDATAGRAM 512
-#define LISTENPORT 5555
+#define LISTENPORT 5558
+#define SENDPORT 5559
 
 #define RESOURCE_FOUND 255
 #define RESOURCE_NOT_FOUND 0
 
 const char* directoryPath;
 int sendfile(FILE* file, struct sockaddr *to);
+void listener();
 
 struct sockaddr findNetwork(const char* filename);
 
@@ -22,6 +26,7 @@ int main(int argc, char* argv[])
 	char *command = NULL; // komenda podawana przez uzytkownika
 	char *ptr; // wsk na nazwe pliku
 	int sizecommand; // rozmiar komendy ( nieuzywany - tylko do wywolania getline)
+	pid_t listenerPID = 0;
 	directoryPath = argv[1]; // katalog wybrany przez uzytkownika
 	printf("Katalog glowny ustawiony na: %s \n", directoryPath);
 
@@ -29,10 +34,12 @@ int main(int argc, char* argv[])
 	{
 	    printf(">");
 	    getline(&command, &sizecommand, stdin); // pobranie komendy
-
-	// zamiana 'entera' na koncu stringa na '\0'
+    //free(command);
+	//zamiana 'entera' na koncu stringa na '\0'
 	if (command [ strlen(command) - 1 ] == '\n' )
             command [ strlen(command) - 1 ] = '\0';
+           // printf("%d", sizecommand);
+        printf("%d \n", strlen(command));
 
 	    if(strstr(command,"find")!=NULL) // jesli w stringu jest find
 	    {
@@ -41,26 +48,43 @@ int main(int argc, char* argv[])
 		// jak beda 2 spacje albo spacja przed find to juz dzialac nie bedzie - takze nad tym mozna pomyslec
 	        printf("plik : %s \n", ptr+1); // przesun sie o jedna pozycje dalej ( tutaj jest nazwa pliku)
             findNetwork(ptr+1);
+            free(command);
 	    }
 	    else if(strcmp(command, "connect") == 0)
 	    {
-	        sendfile(fopen("/home/piotrek/Dokumenty/wtep.odt", "rb" ), NULL);
-	        printf("connect \n");
+	        if(listenerPID == 0)
+	        {
+                listenerPID = fork();
+                if(listenerPID == 0)
+                {
+                    printf("dsfs \n");
+                    listener();
+                }
+                //sendfile(fopen("/home/piotrek/Dokumenty/wtep.odt", "rb" ), NULL);
+                else printf("connected \n");
+	        }
+	        else printf("already connected \n");
 	    }
 	    else if(strcmp(command, "disconnect") == 0)
 	    {
-	        printf("disconnect \n");
+	        kill(listenerPID, SIGKILL);
+	        printf("disconnected \n");
 	    }
 	    else if(strcmp(command, "info") == 0)
 	    {
 	        printf("info \n");
 	    }
-	    else if(strcmp(command,"exit") == 0) exit(0);
+	    else if(strcmp(command,"exit") == 0)
+	    {
+	        kill(listenerPID, SIGKILL);
+	        exit(0);
+	    }
 	    else
 	    {
             printf("Nie ma takiej komendy. \n");
 	    }
-
+    command = NULL;
+	//printf("%s \n cmd \n", command);
 	}
 
 	FILE *file = fopen("/home/piotrek/Pulpit/doc/dokumentacjaV1.pdf", "rb");
@@ -179,19 +203,22 @@ int sendfile(FILE* file, struct sockaddr *to)
 
 FILE* findResource(char *fileName)
 {
+	char* filePath = malloc(strlen(directoryPath) + strlen(fileName) +1);
 	FILE *fp;
-	char fname[261] = "/home/sebastian/Pulpit/TIN/";
-	strncat(fname, fileName, 250);
-	if ((fp = fopen(fname, "rb")) == NULL)
+	strcpy(filePath, directoryPath);
+	strcat(filePath, fileName);
+	printf("szukam : %s \n", filePath);
+	if ((fp = fopen(filePath, "rb")) == NULL)
 	{
 		printf("Nie moge otworzyc takiego pliku!\n");
 		return NULL;
 	}
+	free(filePath);
 	return fp;
 }
 
 
-void listen()
+void listener()
 {
 
 	//bufor na dane z gniazda nasluchujacego
@@ -207,24 +234,26 @@ void listen()
 	listenAddr.sin_addr.s_addr = htonl(INADDR_ANY);
 	listenAddr.sin_port = htons(LISTENPORT);
 
-	if (bind(listenSock, (const struct sockaddr *) &listenAddr, sizeof(struct sockaddr)) != 0){
-		printf("blad funkcji bind listenSock");
+	if (bind(listenSock, (struct sockaddr *)&listenAddr, sizeof(struct sockaddr)) == -1)
+	{
+		printf("blad funkcji bind listenSock \n");
 		return 0;
 	}
 
 	//struktura do zapisania adresu i portu, skad przyszlo zapytanie o plik
-	struct sockaddr_in sourceAddr;
-	socklen_t sourceAddrLenght;
+	struct sockaddr sourceAddr;
+	socklen_t sourceAddrLenght, sendAddrLength;
 
-	while (true)
+	while (1)
 	{
 		//odbiera zapytanie o dany plik, zapisuje do struktury adres i port wezla, ktory pytal
-		if (recvfrom(listenSock, listenBuffer, SIZEDATAGRAM, 0, &sourceAddr, &sourceAddrLenght) < 0)
+		printf("czekam na polaczenie \n");
+		if (recvfrom(listenSock, listenBuffer, SIZEDATAGRAM, 0,(struct sockaddr*) &sourceAddr, &sourceAddrLenght) < 0)
 		{
 			printf("blad recvfrom listen");
 			return 0;
 		}
-
+printf("czekam na polaczenie 2\n");
 		//tworzymy proces do obslugi wyszukiwania zasobu i ewentulnego transferu zasobu
 		if (fork() == 0)
 		{
@@ -233,14 +262,16 @@ void listen()
 			//							- OBSLUZYMY NIE TEGO KLIENTA KTOREGO TRZEBA :D
 			struct sockaddr_in sendAddr;
 			socklen_t sendAddrLenght;
-			sendAddrLength = sourceAddrLength;
+			sendAddrLength = sourceAddrLenght;
 			memcpy(&sendAddr, &sourceAddr, sendAddrLength);
+
+			//printf("%s", sourceAddr.)
 
 			//kopiowanie nazwy pliku z rodzica do dziecka
 			//POTRZEBNA SYNCHRONIZACJA - JAK WYZEJ
 			char * fileName = malloc(SIZEDATAGRAM);
-			memcpy(&fileName, &listenBuffer);
-
+			memcpy(&fileName, &listenBuffer, strlen(listenBuffer));
+            printf(" dostalem %s \n", fileName);
 			//chyba tego nie potrzebujemy w tym procesie, mozemy zamknac?
 			close(listenSock);
 
@@ -253,13 +284,13 @@ void listen()
 
 			//przypisanie adresu i portu do gniazda
 			struct sockaddr_in serviceAddr;
-			listenAddr.sin_family = AF_INET;
-			listenAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-			listenAddr.sin_port = htons(0);
+			serviceAddr.sin_family = AF_INET;
+			serviceAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+			serviceAddr.sin_port = htons(0);
 
-			if (bind(serviceSock, (const struct sockaddr *) &serviceAddr, serviceAddrLength) != 0)
+			if (bind(serviceSock, (struct sockaddr *) &serviceAddr, sizeof(serviceAddr)) != 0)
 			{
-				printf("blad funkcji bind serviceSock");
+				printf("blad funkcji bind serviceSock \n");
 				exit(0);
 			}
 
@@ -271,14 +302,18 @@ void listen()
 			{
 				respBuffer[0] = RESOURCE_FOUND;
 
+				//if(respBuffer[0] == RESOURCE_FOUND) printf("tak \n");
 				//wyslanie odpowiedzi, ze zasob jest
 				//WYSYLAMY Z NOWEGO GNIAZDA - WEZEL PYTAJACY DOSTANIE NASZ NOWY ADRES I NOWY PORT
-				sendto(serviceSock, respBuffer, sizeof(char), 0, &sendAddr, sizeof(sendAddr));
 
+				sleep(3);
+				sendto(serviceSock, fileName, SIZEDATAGRAM, 0, (struct sockaddr *)&sendAddr, sizeof(sendAddr));
+
+                printf("wyslalem potw \n");
 				//czekanie na potwierdzenie transferu zasobu
 				//WEZEL PYTAJACY UTWORZYL NOWE GNIAZDO
 				//ODBIERAMY ODPOWIEDZ Z NOWEGO ADRESU I PORTU - zapisujemy go do sendAddr i sendAddrLength
-				if (recvfrom(serviceSock, respBuffer, SIZEDATAGRAM, 0, &sendAddr, &sendAddrLenght) < 0)
+				if (recvfrom(serviceSock, fileName, SIZEDATAGRAM, 0,(struct sockaddr *) &sendAddr, &sendAddrLenght) < 0)
 				{
 					printf("blad recvfrom listen");
 					exit(0);
@@ -286,7 +321,7 @@ void listen()
 
 				//wysylanie pliku
 				//WYSYLAMY POD NOWY ADRES I PORT, KTORY OTRZYMALISMY PRZED CHWILA
-				sendfile(file, &sendAddr);
+				//sendfile(file,(struct sockaddr *) &sendAddr);
 				fclose(file);
 			}
 			else
@@ -298,7 +333,7 @@ void listen()
 				//WYSYLAMY Z NOWEGO GNIAZDA - WEZEL PYTAJACY DOSTANIE NASZ NOWY ADRES I NOWY PORT
 				//PYTAJACY NIE UTWORZYL NOWEGO GNIAZDA
 				//WYSYLAMY POD STARY ADRES I PORT, Z KTOREGO PRZYSZLO ZAPYTANIE O PLIK
-				sendto(serviceSock, respBuffer, sizeof(char), 0, &sendAddr, sizeof(sendAddr));
+				sendto(serviceSock, respBuffer, sizeof(char), 0, (struct sockaddr *)&sendAddr, sizeof(sendAddr));
 			}
 
 			close(serviceSock);
@@ -319,13 +354,13 @@ struct sockaddr findNetwork(const char* filename)
 {
     int sockfd; // deskryptor
     socklen_t * sockSize; // rozmiar struktury okreslajacej posiadacza zasobu
-    char answer; // odpowiedz
+    char *buff = malloc(SIZEDATAGRAM); // odpowiedz
     struct sockaddr_in bc_addr; // adres broadcastowy
     struct sockaddr resAdress; // adres posiadacza zasobu
     static int so_broadcast = 1;
 
     struct timeval sendtimeout; // ustawiamy timeout
-    sendtimeout.tv_sec = 3;
+    sendtimeout.tv_sec = 6;
     sendtimeout.tv_usec = 0;
 
     // inicjalizacja socketu
@@ -337,37 +372,51 @@ struct sockaddr findNetwork(const char* filename)
     }
 
     // ustawienie opcji - broadcastu
-    if(setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, &so_broadcast, sizeof(so_broadcast)) )
-    {
-        printf("Socket option error. \n");
+   // if(setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, &so_broadcast, sizeof(so_broadcast)) )
+    //{
+      //  printf("Socket option error. \n");
        // return NULL;
-    }
+    //}
 
     // ustawienie adresu
     bc_addr.sin_family = AF_INET;
-    inet_aton("192.168.1.255", &(bc_addr.sin_addr));
+    //inet_aton("192.168.1.5", &(bc_addr.sin_addr));
+    bc_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    //bc_addr.sin_addr.s_addr = inet_addr("192.168.1.5");
     bc_addr.sin_port = htons(LISTENPORT);
 
     // wyslanie zapytania z nazwa pliku
-    sendto(sockfd, filename, strlen(filename),0, (struct sockaddr *)&bc_addr, sizeof(bc_addr) );
-
+    sendto(sockfd, filename, strlen(filename)+1,0, (struct sockaddr *)&bc_addr, sizeof(bc_addr) );
+    printf("wyslane \n");
     // ustawienie opcji - timeout
     setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO,&sendtimeout,sizeof(sendtimeout));
 
 
+
+	if (bind(sockfd, (struct sockaddr *)&bc_addr, sizeof(struct sockaddr)) == -1)
+	{
+		printf("blad funkcji bind listenSock \n");
+		//return 0;
+	}
     // tutaj chyba trzeba to zrobic inaczej
     while(1)
     {
-        if(recvfrom(sockfd, &answer, 1, 0, &resAdress, (socklen_t*)sockSize ) < 0) // jesli po 3 sek nie ma odpowiedzi
+        if(recvfrom(sockfd, buff, SIZEDATAGRAM, 0, NULL, NULL ) < 0) // jesli po 3 sek nie ma odpowiedzi
         { // jesli po 3 sekundach brak odpowiedzi
             printf("Brak zasobu. \n");
             close(sockfd);
+            break;
 
         }
         else
         { // jesli odpowiedz jest pozytywna wychodzimy z petli
             // ale jak bedzie duzo hostow i caly czas negatywna to chyba bedzie slabo
-            if(answer == RESOURCE_FOUND) break;
+           printf("cos dostalem \n");
+            if(buff[0] == RESOURCE_FOUND)
+            {
+                printf("znaleziono \n");
+                break;
+            }
         }
     }
 
