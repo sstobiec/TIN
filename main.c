@@ -12,7 +12,7 @@
 #define ROZM_PAM 4096       // jezeli rozmiar jest wiekszy to nie dziala
 #define SHM_ID 1234
 #define SEM_KEY 1111
-#define MAXINFO 30
+#define MAXINFO 100
 
 char fname[300];
 
@@ -37,7 +37,7 @@ void info(char* shmptr);
 typedef struct
 {
     int status;         // status 0 - wolny, 1 - w trakcie sciagania, 2 - sciagniete, 3 - w trakcie wysylania, 4 - wyslane
-    int progress;
+    int progress;       // jaki jest postep
     char filename[30];
 } Info;
 
@@ -67,17 +67,17 @@ int main(int argc, char *argv[])
     }
     else
     {
-//KLIENT - ROBOCZY KLIENT - TYLKO DO TESTOW!!!!!!!!!
-        /*struct sockaddr_in servaddr;
+
+        struct sockaddr_in servaddr;
         servaddr.sin_family = AF_INET;
         servaddr.sin_addr.s_addr=htonl(INADDR_ANY);
         servaddr.sin_port=htons(MYPORT);
         FILE* fd = fopen("/home/sebastian/Pulpit/TIN/abc", "ab+");
         sendfile(fd, &servaddr);
     }
-        */
+      /*
+        // jezeli chcecie przetestowac to o
 
-        /*88888888888888888888888888888888888888888888*/
         //KLIENT - ROBOCZY KLIENT - TYLKO DO TESTOW!!!!!!!!!
         int sockfd1;
         struct sockaddr_in servaddr,cliaddr;
@@ -126,7 +126,7 @@ int main(int argc, char *argv[])
         }
         close(sockfd1);
     }
-        /*88888888888888888888888888888888888888888888*/
+       */
 
 }
 
@@ -444,6 +444,7 @@ void info(char* shmptr)
     Info* tmp = (Info*) shmptr;
 
     int i;
+    printf("******************************************\n");
     printf("Sciagane pliki:\n");
     for(i = 0; i<MAXINFO; i++)
     {
@@ -460,6 +461,7 @@ void info(char* shmptr)
             printf("%s      %d%\n", tmp[i].filename, tmp[i].progress);
         }
     }
+    printf("******************************************\n");
 }
 
 // gowniane rozwiazanie, malo wydajne ale liczy :p
