@@ -8,10 +8,11 @@
 #include <sys/sem.h>
 
 #define MYPORT 32005
-#define SIZEDATAGRAM 512   // 512B danych
-#define ROZM_PAM 4096
+#define SIZEDATAGRAM 516   // 512B danych
+#define ROZM_PAM 4096       // jezeli rozmiar jest wiekszy to nie dziala
 #define SHM_ID 1234
 #define SEM_KEY 1111
+#define MAXINFO 30
 
 char fname[300];
 
@@ -28,29 +29,56 @@ int shm_remove(int shmId);
 char* attach_segment( int shmId );
 int detach_segment(const void *shmaddr);
 
-
 FILE* download(char *fileName, int sockfd, int semId, char *shmptr);
 FILE* findResource(char *fileName);
 void closeProgram(int semId, int shmId);
-void info(int semId, char* shmptr);
+void info(char* shmptr);
+
+typedef struct
+{
+    int status;         // status 0 - wolny, 1 - w trakcie sciagania, 2 - sciagniete, 3 - w trakcie wysylania, 4 - wyslane
+    int progress;
+    char filename[30];
+} Info;
+
+Info buf[MAXINFO];      // jak globalnie to nie ma smieci
+
 
 int main(int argc, char *argv[])
 {
+    // inicjalizuje semafor
+    int semID = sem_create((int) SEM_KEY);
+    sem_init(semID);
+    // inicjalizuje pamięć dzieloną
+    int shmID = shm_init((int) SHM_ID,(int) ROZM_PAM);
+    char *shmptr = (char*)attach_segment( shmID );
+
+    // zapisuje struktury typu Info w pamieci dzielonej
+    sem_P(semID);
+    memcpy(shmptr, buf, MAXINFO*sizeof(Info));
+    sem_V(semID);
+
+
     if(fork() == 0)
     {
-        // inicjalizuje semafor
-        int semID = sem_create((int) SEM_KEY);
-        sem_init(semID);
-        // inicjalizuje pamięć dzieloną
-        int shmID = shm_init((int) SHM_ID,(int) ROZM_PAM);
-        char *shmptr = (char*)attach_segment( shmID );
-
+        char *shmptr1 = (char*)attach_segment( shmID );
         int a = initSocket();
-        download("/home/sebastian/Pulpit/TIN/ab", a, semID, shmptr);
+        download("/home/sebastian/Pulpit/TIN/ab", a, semID, shmptr1);
     }
     else
     {
 //KLIENT - ROBOCZY KLIENT - TYLKO DO TESTOW!!!!!!!!!
+        /*struct sockaddr_in servaddr;
+        servaddr.sin_family = AF_INET;
+        servaddr.sin_addr.s_addr=htonl(INADDR_ANY);
+        servaddr.sin_port=htons(MYPORT);
+        FILE* fd = fopen("/home/sebastian/Pulpit/TIN/abc", "ab+");
+        sendfile(fd, &servaddr);
+    }
+        */
+
+        /*88888888888888888888888888888888888888888888*/
+        //KLIENT - ROBOCZY KLIENT - TYLKO DO TESTOW!!!!!!!!!
         int sockfd1;
         struct sockaddr_in servaddr,cliaddr;
         char *sendline = malloc(SIZEDATAGRAM);
@@ -98,6 +126,8 @@ int main(int argc, char *argv[])
         }
         close(sockfd1);
     }
+        /*88888888888888888888888888888888888888888888*/
+
 }
 
 int initSocket()
@@ -135,34 +165,158 @@ int initSocket()
     return sockfd;
 }
 
+int sendfile(FILE* file, struct sockaddr *to)
+{
+	int fileSize; // rozmiar pliku
+	int datagramNumber; // ilosc datagramow
+	int ack; // numer potwierdzanego pakietu
+	int sockfd; //socket
+	int i = 0; // iterator po datagramach
+	char * buffer = malloc(SIZEDATAGRAM); // buforach dla danych
+
+    struct timeval sendtimeout; // ustawiamy timeout
+    sendtimeout.tv_sec = 3;
+    sendtimeout.tv_usec = 0;
+
+
+	fseek(file,0, SEEK_END); // przesuniecie na koniec pliku
+	fileSize = ftell(file); // odczyt rozmiaru
+
+	fseek(file,0, SEEK_SET); // powrot na poczatek
+
+	datagramNumber = fileSize / (SIZEDATAGRAM-4); // ilosc datagramow
+	if(fileSize % (SIZEDATAGRAM-4) != 0) datagramNumber++; // jesli z reszta to +1
+
+
+	memcpy(buffer, &fileSize, sizeof(int)); // ladujemy rozmiar pliku
+	memcpy(buffer+4, &datagramNumber, sizeof(int)); // ilosc datagramow
+	memcpy(buffer+8, &i, sizeof(int)); // numer ( 0 ) datagramu
+
+	sockfd = socket(AF_INET, SOCK_DGRAM,0); // utworzenie gniazda
+
+    //ustawienie funkcji socketa - timeout'u
+	setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO,&sendtimeout,sizeof(sendtimeout));
+
+    //w przypadku braku potw, co 3s wysylamy datagram jeszcze raz
+    int k;
+	for(k = 0; k < 3; ++k)
+	{
+       	sendto(sockfd, buffer, 3*sizeof(int), 0, to, sizeof(*to)); // wyslanie
+
+        if(recvfrom(sockfd, buffer, sizeof(int), 0, NULL, NULL) < 0) // jesli po 3 sek nie ma odpowiedzi
+        {
+            if( k == 2) // jesli wyslalismy juz 3 razy
+            {
+                printf("3 proby nieudane.Zamykam polaczenie... \n");
+                close(sockfd);
+                return 0;
+            }
+            printf("Blad polaczenia. Ponawiam transfer pakietu... \n");
+        }
+        else
+        {
+            // odczyt numer pakietu
+            memcpy(&ack, buffer, sizeof(int)); // zapis z bufora do zmiennej
+            if(ack == 0) break;// jesli odebralismy dobre potwierdzenie to wychodzimy z petli
+        }
+	}
+
+    // petla - ilosc obiegow - ilosc datagramow
+	for(i =1; i < datagramNumber+1; ++i)
+	{
+		// przemieszamy sie po pliku
+		fseek(file, (SIZEDATAGRAM-4)*(i-1), SEEK_SET);
+
+		// jesli to ostatni datagram
+		if(i == datagramNumber)
+		{
+			fread(buffer, 1, fileSize % (SIZEDATAGRAM-4),file);
+		}
+		else
+		{
+		    fread(buffer, 1, SIZEDATAGRAM-4,file);
+		}
+
+		// na koniec pakietu dodajemy jego numer
+		memcpy(buffer+SIZEDATAGRAM-4, &i, sizeof(int));
+
+        //w przypadku braku potw, co 3s wysylamy datagram jeszcze raz
+        for(k = 0; k < 3; ++k)
+        {
+            sendto(sockfd, buffer, SIZEDATAGRAM, 0, to, sizeof(*to)); // wyslanie
+
+            if(recvfrom(sockfd, buffer, 4, 0, NULL, NULL) < 0) // sprawdzenie odp.
+            {
+                if( k == 2)
+                {
+                    printf("3 nieudane proby.Zamykam polaczenie... \n");
+                    close(sockfd);
+                    return 0;
+                }
+                printf("Blad polaczenia. Ponawiam transfer pakietu... \n");
+            }
+            else
+            {
+                // odczyt numeru potwierdzenia
+                memcpy(&ack, buffer, sizeof(int));
+                if( ack == i ) break; // jesli dobre potwierdzenie
+            }
+        }
+
+	}
+	close(sockfd);
+	return 1;
+
+}
+
+
 FILE* download(char *fileName, int sockfd, int semId, char *shmptr)
 {
         struct sockaddr_in client_addr;
         // określa wielkość struktury sockaddr
         socklen_t len = sizeof(client_addr);
-        char *mesg = malloc(SIZEDATAGRAM);
+        char *mesg = malloc(SIZEDATAGRAM-sizeof(int));
         char *ack = malloc(sizeof(int));
         // przechowuje nr datagramu
         int whichOne;
         // zlicza ilosc datagramow ktore nadeszly
         int counter;
-        int fileSize, datagramNumber, lastDatagramSize, currentSizeDatagram;
+        int fileSize, datagramNumber, lastDatagramSize, currentSizeDatagram, index;
+        Info tmpinfo;
         FILE *fd;
+
+        //uzupelnienie logow
+        tmpinfo.status = 1;
+        strcpy(tmpinfo.filename, fileName);
+
+        // to musi byc tutaj + w sekcji krytycznej - musze zajac index i go w sekcji zapisac w sekcji
+        sem_P(semId);
+        index = findIndex(shmptr);
+        memcpy(shmptr+index*sizeof(Info), &tmpinfo, sizeof(Info));
+        sem_V(semId);
+
 
         // odebranie rozmiaru pliku, liczby datagramow i rozmiaru ostatniego datagramu
         if(recvfrom(sockfd, mesg, sizeof(int)*3, 0, (struct sockaddr *)&client_addr, &len) == -1)
+        {
                 printf("Błąd w recvfrom");
+                close(sockfd);
+                // zwolnienie zaalokowanej pamieci
+                free(ack);
+                free(mesg);
+                return NULL;
+        }
 
         memcpy(&fileSize, mesg, sizeof(int)); // kopiuje rozmiar pliku
         memcpy(&datagramNumber, mesg+sizeof(int), sizeof(int)); // kopiuje ilosc datagramow
         memcpy(&whichOne, mesg+sizeof(int)*2, sizeof(int)); // kopiuje numer datagramu
 
         // TESTowe ///////////////////////////////////////////////////////
-        printf("%d %d %d \n", fileSize, datagramNumber, whichOne);
+        printf("Dane o pobieranym pliku: %d %d %d \n", fileSize, datagramNumber, whichOne);
         ///////////////////////////////////////////////////////////////////
 
         // obliczam koncowke pliku
-        lastDatagramSize = fileSize % SIZEDATAGRAM;
+        lastDatagramSize = fileSize % (SIZEDATAGRAM-sizeof(int));
 
         // nr pakietu powinien byc rowny 0
         if(whichOne == 0)
@@ -188,7 +342,7 @@ FILE* download(char *fileName, int sockfd, int semId, char *shmptr)
             setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO,&sendtimeout,sizeof(sendtimeout));
 
             counter = 1;
-            currentSizeDatagram = SIZEDATAGRAM + sizeof(int);
+            currentSizeDatagram = SIZEDATAGRAM;
 
             while(datagramNumber >= counter)
             {
@@ -198,6 +352,12 @@ FILE* download(char *fileName, int sockfd, int semId, char *shmptr)
                 if(recvfrom(sockfd, mesg, currentSizeDatagram, 0, (struct sockaddr *)&client_addr, &len) == -1)
                 {
                     printf("Błąd pobieranie pliku\nPrzerwane połączenie\n");
+                    //uzupelnienie logow
+                    tmpinfo.status = 0;
+                    sem_P(semId);
+                    memcpy(shmptr+index*sizeof(Info), &tmpinfo, sizeof(Info));
+                    sem_V(semId);
+
                     close(sockfd);
                     // usun plik
                     remove(fileName);
@@ -225,13 +385,11 @@ FILE* download(char *fileName, int sockfd, int semId, char *shmptr)
                 // wysyla potwierdzenie
                 sendto(sockfd, ack, sizeof(int), 0, (struct sockaddr *)&client_addr, sizeof(client_addr));
 
-                double wiad = (counter-1.0) / datagramNumber;
-                printf("\n%f\n  %d      %d", wiad, counter, datagramNumber);
+                tmpinfo.progress = ((counter-1.0) / datagramNumber) * 100;
                 sem_P(semId);
-                // testowanie czy to gowno w ogole zadziala
-                memcpy(shmptr, &wiad, sizeof(double));
+                memcpy(shmptr+index*sizeof(Info), &tmpinfo, sizeof(Info));
+                info(shmptr);
                 sem_V(semId);
-                info(semId, shmptr);
 
 
                 printf("-------------------------------------------------------\n");
@@ -240,6 +398,13 @@ FILE* download(char *fileName, int sockfd, int semId, char *shmptr)
                 printf("-------------------------------------------------------\n");
             }
         }
+
+        //uzupelnienie logow
+        tmpinfo.status = 2;
+        sem_P(semId);
+        memcpy(shmptr+index*sizeof(Info), &tmpinfo, sizeof(Info));
+        sem_V(semId);
+
 
         fclose(fd);
         // TESTowe
@@ -274,25 +439,60 @@ void closeProgram(int semId, int shmId)
     exit(0);
 }
 
-void info(int semId, char* shmptr)
+void info(char* shmptr)
 {
-    double mesg;
-    sem_P(semId);
-    memcpy(&mesg, shmptr, sizeof(double));
-    sem_V(semId);
-    printf("\n********  %f  **********\n",mesg);
+    Info* tmp = (Info*) shmptr;
+
+    int i;
+    printf("Sciagane pliki:\n");
+    for(i = 0; i<MAXINFO; i++)
+    {
+        if(tmp[i].status == 1 || tmp[i].status == 2)
+        {
+            printf("%s      %d%\n", tmp[i].filename, tmp[i].progress);
+        }
+    }
+    printf("\n\nWysyłane pliki:\n");
+    for(i = 0; i<MAXINFO; i++)
+    {
+        if(tmp[i].status == 3 || tmp[i].status == 4)
+        {
+            printf("%s      %d%\n", tmp[i].filename, tmp[i].progress);
+        }
+    }
 }
 
+// gowniane rozwiazanie, malo wydajne ale liczy :p
+// wyszukuje wolny indeks w obszarze pamieci dzielonej
+int findIndex(char *shmptr)
+{
+    int i, j, index = -1;
+    Info* inf = (Info*) shmptr;
 
+    for(i=0; i<MAXINFO; i++)
+    {
+        if(inf[i].status == 0)
+        {
+            index = i;
+            break;
+        }
+    }
+    if(index == -1)
+    {
+        for(i=0; i<MAXINFO; i++)
+        {
+            if(inf[i].status == 2 || inf[i].status == 4)
+            {
+                index = i;
+                break;
+            }
+        }
+    }
+    if(index == -1)
+        index == 0;
 
-
-
-
-
-
-
-
-
+    return index;
+}
 
 
 
