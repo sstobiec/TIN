@@ -8,8 +8,8 @@
 #include <sys/sem.h>
 
 #define MYPORT 32005
-#define SIZEDATAGRAM 516   // 512B danych
-#define ROZM_PAM 4096       // jezeli rozmiar jest wiekszy to nie dziala
+#define SIZEDATAGRAM 512
+#define ROZM_PAM 4096       // jezeli rozmiar jest wiekszy to nie dziala bo jakies ograniczenia sa
 #define SHM_ID 1234
 #define SEM_KEY 1111
 #define MAXINFO 100
@@ -66,7 +66,7 @@ int main(int argc, char *argv[])
         download("/home/sebastian/Pulpit/TIN/ab", a, semID, shmptr1);
     }
     else
-    {
+    {/*
 
         struct sockaddr_in servaddr;
         servaddr.sin_family = AF_INET;
@@ -75,7 +75,7 @@ int main(int argc, char *argv[])
         FILE* fd = fopen("/home/sebastian/Pulpit/TIN/abc", "ab+");
         sendfile(fd, &servaddr);
     }
-      /*
+      */
         // jezeli chcecie przetestowac to o
 
         //KLIENT - ROBOCZY KLIENT - TYLKO DO TESTOW!!!!!!!!!
@@ -100,7 +100,7 @@ int main(int argc, char *argv[])
         memcpy(sendline+sizeof(int), &datagramNumber, sizeof(int)); // ilosc datagramow
         memcpy(sendline+2*sizeof(int), &i, sizeof(int)); // numer ( 0 ) datagramu
 
-        sendto(sockfd1,sendline, SIZEDATAGRAM+sizeof(int), 0, (struct sockaddr *)&servaddr,sizeof(servaddr));
+        sendto(sockfd1,sendline, 3*sizeof(int), 0, (struct sockaddr *)&servaddr,sizeof(servaddr));
         if(recvfrom(sockfd1,recvmsg, sizeof(int),0,NULL,NULL) == -1) printf("Błąd w recvfrom");
 
 
@@ -126,7 +126,7 @@ int main(int argc, char *argv[])
         }
         close(sockfd1);
     }
-       */
+
 
 }
 
@@ -322,7 +322,18 @@ FILE* download(char *fileName, int sockfd, int semId, char *shmptr)
         if(whichOne == 0)
             memcpy(ack, mesg+sizeof(int)*2, sizeof(int));
         else
-            perror("Blad odebrania pliku :p");
+        {
+                printf("Blad odebrania pliku :p");
+                close(sockfd);
+                // zwolnienie zaalokowanej pamieci
+                free(ack);
+                free(mesg);
+                return NULL;
+        }
+
+
+
+
 
         // wysyla potwierdzenie
         sendto(sockfd, ack, sizeof(int), 0, (struct sockaddr *)&client_addr, sizeof(client_addr));
