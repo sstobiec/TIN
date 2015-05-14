@@ -44,7 +44,9 @@
 #define ANSI_COLOR_BLUE		"\x1b[34m"
 #define ANSI_COLOR_MAGENTA	"\x1b[35m"
 
-
+//tworzy dwa foldery:
+//pobrane - pobrane pliki
+//udostep - udostepniane pliki
 char* sharedDirectoryPath;
 char* downloadDirectoryPath;
 int sendfile(FILE* file, char* filename, struct sockaddr *to, int semId, char *shmptr);
