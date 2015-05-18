@@ -11,7 +11,7 @@
 #include <sys/stat.h>
 #include <ifaddrs.h>
 #include <arpa/inet.h>
-
+#include <time.h>
 
 
 #include <sys/ipc.h>
@@ -49,10 +49,12 @@
 //udostep - udostepniane pliki
 char* sharedDirectoryPath;
 char* downloadDirectoryPath;
+char* logFilePath;
 int sendfile(FILE* file, char* filename, struct sockaddr *to, int semId, char *shmptr);
 void listener();
 
 void findNetwork(const char* filename);
+void createNecessaryFiles(char* path);
 
 int checkSource(struct sockaddr_in sourceAddress);
 
@@ -87,6 +89,7 @@ typedef struct
 Info buf[MAXINFO];      // jak globalnie to nie ma smieci
 
 int semID;
+int fileSemID;
 char *shmptr;
 int shmID;
 
@@ -94,6 +97,9 @@ int main(int argc, char* argv[])
 {
 
     // inicjalizuje semafor
+    semID = sem_create((int) SEM_KEY);
+    sem_init(semID);
+    // inicjalizacja semafora dla pliku logow
     semID = sem_create((int) SEM_KEY);
     sem_init(semID);
     // inicjalizuje pamięć dzieloną
@@ -119,27 +125,9 @@ int main(int argc, char* argv[])
 	char *ptr; // wsk na nazwe pliku
 	int sizecommand; // rozmiar komendy ( nieuzywany - tylko do wywolania getline)
 	pid_t listenerPID = 0;
-    struct stat stt ={0};
 
-    if (stat(argv[1], &stt) == -1)
-    {
-        printf("Bledna sciezka do katalogu. \n");
-        exit(0);
-    }
+	createNecessaryFiles(argv[1]);
 
-
-	sharedDirectoryPath = malloc(strlen(argv[1]) + strlen("/udostep/") +1);
-	strcpy(sharedDirectoryPath, argv[1]);
-	strcat(sharedDirectoryPath, "/udostep/");
-
-    downloadDirectoryPath = malloc(strlen(argv[1]) + strlen("/pobrane/") +1);
-	strcpy(downloadDirectoryPath, argv[1]);
-	strcat(downloadDirectoryPath, "/pobrane/");
-
-	createDirectories(sharedDirectoryPath, downloadDirectoryPath);
-
-	printf("Katalog udostepniony ustawiony na: %s \n", sharedDirectoryPath);
-	printf("Katalog pobranych plikow ustawiony na: %s \n", downloadDirectoryPath);
 
 	while(1)
 	{
@@ -183,6 +171,9 @@ int main(int argc, char* argv[])
 	    }
 	    else if(strcmp(command, "info") == 0)
 	    {
+            sem_P(semID);
+            info(shmptr);
+            sem_V(semID);
 	        printf("info \n");
 	    }
 	    else if(strcmp(command,"exit") == 0)
@@ -340,6 +331,8 @@ int sendfile(FILE* file, char* filename, struct sockaddr *to, int semId, char *s
     memcpy(shmptr+index*sizeof(Info), &tmpinfo, sizeof(Info));
     sem_V(semId);
 
+    writeToLogFile(&tmpinfo);
+
 	close(sockfd);
 	free(buffer);
 	return 1;
@@ -493,6 +486,7 @@ int download(char *fileName, int sockfd, int semId, char *shmptr)
         memcpy(shmptr+index*sizeof(Info), &tmpinfo, sizeof(Info));
         sem_V(semId);
 
+        writeToLogFile(&tmpinfo);
 
         fclose(fd);
         close(sockfd);
@@ -1062,3 +1056,62 @@ int detach_segment(const void *shmaddr)
     return shmdt(shmaddr);
 };
 
+void createNecessaryFiles(char* path)
+{
+    struct stat stt ={0};
+
+    if (stat(path, &stt) == -1)
+    {
+        printf("Bledna sciezka do katalogu. \n");
+        exit(0);
+    }
+
+    sharedDirectoryPath = malloc(strlen(path) + strlen("/udostep/") +1);
+	strcpy(sharedDirectoryPath, path);
+	strcat(sharedDirectoryPath, "/udostep/");
+
+    downloadDirectoryPath = malloc(strlen(path) + strlen("/pobrane/") +1);
+	strcpy(downloadDirectoryPath, path);
+	strcat(downloadDirectoryPath, "/pobrane/");
+
+	createDirectories(sharedDirectoryPath, downloadDirectoryPath);
+
+	createLogFile(path);
+
+	printf("Katalog udostepniony ustawiony na: %s \n", sharedDirectoryPath);
+	printf("Katalog pobranych plikow ustawiony na: %s \n", downloadDirectoryPath);
+	printf("Plik logow ustawiony na: %s \n", logFilePath);
+
+}
+
+void createLogFile(char* path)
+{
+   // char* logFileName = "/logs.txt";
+    logFilePath = malloc(strlen(path) + strlen("/logs.txt") +1);
+
+    strcpy(logFilePath, path);
+	strcat(logFilePath, "/logs.txt");
+
+
+    FILE* fp = fopen(logFilePath, "ab+");
+    close(fp);
+}
+
+void writeToLogFile(Info *temp)
+{
+    sem_P(fileSemID);
+    FILE* fp = fopen(logFilePath, "a");
+    time_t now;
+	time(&now);
+
+    if(temp->status == 2)
+    {
+        fprintf(fp, "Plik:%s\tpobrane:%d%%\tdata:%s \n", temp->filename, temp->progress, ctime(&now));
+    }
+    else if(temp->status == 4)
+    {
+        fprintf(fp, "Plik:%s\twyslane:%d%%\tdata:%s \n", temp->filename,  temp->progress, ctime(&now));
+    }
+    fclose(fp);
+    sem_V(fileSemID);
+}
