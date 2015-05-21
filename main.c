@@ -33,6 +33,7 @@
 #define ROZM_PAM 4096       // jezeli rozmiar jest wiekszy to nie dziala bo jakies ograniczenia sa
 #define SHM_ID 1234
 #define SEM_KEY 1111
+#define SEM_FILE_KEY 2222
 #define MAXINFO 100
 
 // Kolory tekstu na wyjsciu
@@ -100,8 +101,8 @@ int main(int argc, char* argv[])
     semID = sem_create((int) SEM_KEY);
     sem_init(semID);
     // inicjalizacja semafora dla pliku logow
-    semID = sem_create((int) SEM_KEY);
-    sem_init(semID);
+    fileSemID = sem_create((int) SEM_FILE_KEY);
+    sem_init(SEM_FILE_KEY);
     // inicjalizuje pamięć dzieloną
     shmID = shm_init((int) SHM_ID,(int) ROZM_PAM);
     shmptr = (char*)attach_segment( shmID );
@@ -211,7 +212,8 @@ int sendfile(FILE* file, char* filename, struct sockaddr *to, int semId, char *s
     if(file == NULL)    return -1;
 
     struct timeval sendtimeout; // ustawiamy timeout
-    sendtimeout.tv_sec = 3;
+   // sendtimeout.tv_sec = 3;
+    sendtimeout.tv_sec = 20;
     sendtimeout.tv_usec = 0;
 
     fseek(file,0, SEEK_END); // przesuniecie na koniec pliku
@@ -230,6 +232,8 @@ int sendfile(FILE* file, char* filename, struct sockaddr *to, int semId, char *s
     memcpy(buffer+2*sizeof(int), &datagramNumber, sizeof(int)); // ladujemy rozmiar pliku
 
     sockfd = socket(AF_INET, SOCK_DGRAM,0); // utworzenie gniazda
+
+    printf("send\n");
 
     //ustawienie funkcji socketa - timeout'u
     setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO,&sendtimeout,sizeof(sendtimeout));
@@ -278,7 +282,7 @@ int sendfile(FILE* file, char* filename, struct sockaddr *to, int semId, char *s
 
         // interpretacja autora :
         // co 10 przebieg sprawdzamy czy plik nie zostal usuniety
-        if(i % 10)
+        if(i % 10 == 10)
         {
             test = fopen(filePath, "r");
             if(test == NULL )
@@ -291,6 +295,7 @@ int sendfile(FILE* file, char* filename, struct sockaddr *to, int semId, char *s
                 free(buffer);
                 fclose(test);
                 fclose(file);
+                printf("PLIK USUNIETY PODCZAS WYSYLANIA");
                 return -2;
             }
             fclose(test);
@@ -388,9 +393,12 @@ int download(char *fileName, int sockfd, int semId, char *shmptr)
 
     // ustawiamy timeout
     struct timeval sendtimeout;
-    sendtimeout.tv_sec = 10;
+    //sendtimeout.tv_sec = 10;
+    sendtimeout.tv_sec = 20;
     sendtimeout.tv_usec = 0;
 
+
+    printf("download\n");
     // nie moge wczesniej właczyć blokowania bo nie wiemy kiedy nadejdzie pierwsza porcja danych
     //ustawienie funkcji socketa - timeout'u
     setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO,&sendtimeout,sizeof(sendtimeout));
@@ -399,7 +407,7 @@ int download(char *fileName, int sockfd, int semId, char *shmptr)
     if(recvfrom(sockfd, mesg, sizeof(int)*3, 0, (struct sockaddr *)&client_addr, &len) == -1)
     {
         printf(ANSI_COLOR_RED "Błąd w recvfrom" ANSI_COLOR_RESET);
-        close(sockfd);
+        //close(sockfd);
         // zwolnienie zaalokowanej pamieci
         free(mesg);
         return -1;
@@ -418,7 +426,7 @@ int download(char *fileName, int sockfd, int semId, char *shmptr)
     else
     {
         printf(ANSI_COLOR_RED "Blad odebrania pliku :p" ANSI_COLOR_RESET);
-        close(sockfd);
+       // close(sockfd);
         // zwolnienie zaalokowanej pamieci
         free(mesg);
         return -1;
@@ -451,7 +459,7 @@ int download(char *fileName, int sockfd, int semId, char *shmptr)
         {
             // interpretacja autora :
             // co 10 przebieg sprawdzamy czy plik nie zostal usuniety
-            if(counter % 10)
+            if(counter % 10 == 0)
             {
                 test = fopen(filepath, "r");
                 if(test == NULL )
@@ -460,7 +468,8 @@ int download(char *fileName, int sockfd, int semId, char *shmptr)
                     sem_P(semId);
                     memcpy(shmptr+index*sizeof(Info), &tmpinfo, sizeof(Info));
                     sem_V(semId);
-                    close(sockfd);
+                   // close(sockfd);
+                    fclose(test);
                     free(mesg);
                     return -2;
                 }
@@ -470,7 +479,7 @@ int download(char *fileName, int sockfd, int semId, char *shmptr)
             if(datagramNumber == counter)
                 currentSizeDatagram = lastDatagramSize + sizeof(int);
 
-            if(recvfrom(sockfd, mesg, currentSizeDatagram, 0, (struct sockaddr *)&client_addr, &len) == -1)
+            if(recvfrom(sockfd, mesg, currentSizeDatagram, 0, (struct sockaddr *)&client_addr, &len) <0)
             {
                 printf(ANSI_COLOR_RED "Blad pobierania pliku\nPrzerwane polaczenie\n" ANSI_COLOR_RESET);
                 //uzupelnienie logow
@@ -479,11 +488,11 @@ int download(char *fileName, int sockfd, int semId, char *shmptr)
                 memcpy(shmptr+index*sizeof(Info), &tmpinfo, sizeof(Info));
                 sem_V(semId);
 
-                close(sockfd);
+                //close(sockfd);
                 // usun plik
-                remove(fileName);
+                remove(filepath);
                 free(mesg);
-                return -1;
+                return -2;
             }
 
             // kopiuje numer datagramu
@@ -535,7 +544,7 @@ int download(char *fileName, int sockfd, int semId, char *shmptr)
     writeToLogFile(&tmpinfo, offset);
 
     fclose(fd);
-    close(sockfd);
+   // close(sockfd);
     // zwolnienie zaalokowanej pamieci
     free(mesg);
     // prawidłowe zakonczenie
@@ -661,7 +670,8 @@ void listener()
                 printf("wyslalem potw do %s \n", address);
 
                 struct timeval sendtimeout; // ustawiamy timeout
-                sendtimeout.tv_sec = 12;
+                //sendtimeout.tv_sec = 12;
+                 sendtimeout.tv_sec = 20;
                 sendtimeout.tv_usec = 0;
 
                 // ustawienie opcji - timeout
@@ -741,7 +751,8 @@ void findNetwork( char* filename)
     char * shmptr1;         //wskaznik na wspolna pamiec
 
     struct timeval sendtimeout; // ustawiamy timeout
-    sendtimeout.tv_sec = 4;
+    //sendtimeout.tv_sec = 4;
+     sendtimeout.tv_sec = 20;
     sendtimeout.tv_usec = 0;
 
     // inicjalizacja socketu
@@ -763,6 +774,7 @@ void findNetwork( char* filename)
     // ustawienie adresu
     temp.sin_family = AF_INET;
     temp.sin_addr.s_addr = htonl(INADDR_ANY);
+
     temp.sin_port = htons(0);
 
     if (bind(sockfd, (struct sockaddr *)&temp, sizeof(temp)) == -1)
@@ -777,7 +789,8 @@ void findNetwork( char* filename)
     socklen_t len = sizeof(tmp2);
     // ustawienie adresu
     bc_addr.sin_family = AF_INET;
-    bc_addr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+   // bc_addr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+   bc_addr.sin_addr.s_addr = inet_addr("25.77.112.143");
     bc_addr.sin_port = htons(LISTENPORT);
 
     int i;
@@ -829,7 +842,7 @@ void findNetwork( char* filename)
 
                 for(j =0; j<3; ++j)
                 {
-
+                    printf("wywolanie download, proba %d\n",j);
                     sendto(sockfd, resp, sizeof(char),0,(struct sockaddr*)&tmp2, sizeof(tmp2));
 
                     //nie bylo forka
