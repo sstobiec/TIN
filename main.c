@@ -3,7 +3,6 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <sys/time.h>
 #include <signal.h>
 #include <unistd.h>
 #include <netdb.h>
@@ -1162,12 +1161,11 @@ void createLogFile(char* path)
 
 int writeToLogFile(Info *temp, int miejsce)
 {
-    if(temp->status == 0 || temp->status == 1 || temp->status == 3)
-        return -2;
-
     int offset;
     sem_P(fileSemID);
     int fd = open(logFilePath, O_WRONLY);
+
+    printf("sciezka : %s miejsce: %d\n", logFilePath, miejsce);
 
     time_t now;
     time(&now);
@@ -1201,6 +1199,8 @@ int writeToLogFile(Info *temp, int miejsce)
         {
             write(fd, "\tzakonczone wysylanie    \tdata: ", 32);
         }
+         write(fd, ctime(&now), 25);
+        write(fd, "\n", 1);
         close(fd);
         sem_V(fileSemID);
         return -1;
