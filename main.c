@@ -12,6 +12,7 @@
 #include <ifaddrs.h>
 #include <arpa/inet.h>
 #include <time.h>
+#include <fcntl.h>
 
 
 #include <sys/ipc.h>
@@ -78,7 +79,7 @@ char* attach_segment( int shmId );
 int detach_segment(const void *shmaddr);
 
 int download(char *fileName, int sockfd, int semId, char *shmptr);
-void closeProgram(int semId, int shmId);
+void closeProgram();
 void info(char* shmptr);
 
 typedef struct
@@ -89,7 +90,7 @@ typedef struct
 } Info;
 
 Info buf[MAXINFO];      // jak globalnie to nie ma smieci
-
+int writeToLogFile(Info *temp, int miejsce);
 int semID;
 int fileSemID;
 char *shmptr;
@@ -102,7 +103,7 @@ int main(int argc, char* argv[])
     sem_init(semID);
     // inicjalizacja semafora dla pliku logow
     fileSemID = sem_create((int) SEM_FILE_KEY);
-    sem_init(SEM_FILE_KEY);
+    sem_init(fileSemID);
     // inicjalizuje pamięć dzieloną
     shmID = shm_init((int) SHM_ID,(int) ROZM_PAM);
     shmptr = (char*)attach_segment( shmID );
@@ -178,7 +179,8 @@ int main(int argc, char* argv[])
         else if(strcmp(command,"exit") == 0)
         {
             kill(0, SIGTERM);
-            exit(0);
+		closeProgram();
+            //exit(0);
         }
         else
         {
@@ -274,7 +276,8 @@ int sendfile(FILE* file, char* filename, struct sockaddr *to, int semId, char *s
     memcpy(shmptr+index*sizeof(Info), &tmpinfo, sizeof(Info));
     sem_V(semId);
 
-    int offset = writeToLogFile(tmpinfo,-1);
+    printf("tutja \n");
+    int offset= writeToLogFile(&tmpinfo,-1);
 
     // petla - ilosc obiegow - ilosc datagramow
     for(i =1; i <= datagramNumber; ++i)
@@ -789,8 +792,8 @@ void findNetwork( char* filename)
     socklen_t len = sizeof(tmp2);
     // ustawienie adresu
     bc_addr.sin_family = AF_INET;
-   // bc_addr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
-   bc_addr.sin_addr.s_addr = inet_addr("25.77.112.143");
+   bc_addr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+   //bc_addr.sin_addr.s_addr = inet_addr("25.80.204.68");
     bc_addr.sin_port = htons(LISTENPORT);
 
     int i;
@@ -960,10 +963,11 @@ void createDirectories(char* share, char* download)
 
 
 
-void closeProgram(int semId, int shmId)
+void closeProgram(int shmId)
 {
-    sem_remove(semId);
-    shm_remove(shmId);
+    sem_remove(semID);
+	sem_remove(fileSemID);
+	shm_remove(shmID);
     exit(0);
 }
 
@@ -1158,43 +1162,48 @@ void createLogFile(char* path)
 
 int writeToLogFile(Info *temp, int miejsce)
 {
+    if(temp->status == 0 || temp->status == 1 || temp->status == 3)
+        return -2;
+
     int offset;
     sem_P(fileSemID);
-    FILE* fp = fopen(logFilePath, "a");
+    int fd = open(logFilePath, O_WRONLY);
+
     time_t now;
     time(&now);
 
-
     if(miejsce == -1 )
     {
-        offset = ftell(fp);
+        lseek(fd, 0, SEEK_END);
+        write(fd, "Plik: ", 6);
+        write(fd, temp->filename, strlen(temp->filename));
+        offset = lseek(fd, 0, SEEK_CUR);
+
         if(temp->status == 2)
-        {
-            fprintf(fp, "Plik:%s\t niezakonczone pobieranie  \tdata:%s \n", temp->filename, ctime(&now));
-        }
+            write(fd, "\tniezakonczone pobieranie\tdata: ", 32);
         else if(temp->status == 4)
-        {
-            fprintf(fp, "Plik:%s\t niezakonczone wysylanie  \tdata:%s \n", temp->filename, ctime(&now));
-        }
-        fclose(fp);
+            write(fd, "\tniezakonczone wysylanie \tdata: ", 32);
+
+        write(fd, ctime(&now), 25);
+        write(fd, "\n", 1);
+        close(fd);
         sem_V(fileSemID);
         return offset;
     }
     else
     {
-        fseek(fp,miejsce, SEEK_SET);
+        lseek(fd, miejsce, SEEK_SET);
         if(temp->status == 2)
         {
-            fprintf(fp, "Plik:%s\t zakonczone pobieranie    \tdata:%s \n", temp->filename, ctime(&now));
+            write(fd, "\tzakonczone pobieranie   \tdata: ", 32);
         }
         else if(temp->status == 4)
         {
-            fprintf(fp, "Plik:%s\t zakonczone wysylanie     \tdata:%s \n", temp->filename, ctime(&now));
+            write(fd, "\tzakonczone wysylanie    \tdata: ", 32);
         }
-        fclose(fp);
+        close(fd);
         sem_V(fileSemID);
         return -1;
-
     }
-
 }
+
