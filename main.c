@@ -1177,9 +1177,9 @@ int writeToLogFile(Info *temp, int miejsce)
         write(fd, temp->filename, strlen(temp->filename));
         offset = lseek(fd, 0, SEEK_CUR);
 
-        if(temp->status == 2)
+        if(temp->status == 1)
             write(fd, "\tniezakonczone pobieranie\tdata: ", 32);
-        else if(temp->status == 4)
+        else if(temp->status == 3)
             write(fd, "\tniezakonczone wysylanie \tdata: ", 32);
 
         write(fd, ctime(&now), 25);
