@@ -80,6 +80,7 @@ int detach_segment(const void *shmaddr);
 int download(char *fileName, int sockfd, int semId, char *shmptr);
 void closeProgram();
 void info(char* shmptr);
+int checkTransfers(char* shmptr, int which);
 
 typedef struct
 {
@@ -94,6 +95,8 @@ int semID;
 int fileSemID;
 char *shmptr;
 int shmID;
+
+int connected = 0;
 
 int main(int argc, char* argv[])
 {
@@ -150,12 +153,13 @@ int main(int argc, char* argv[])
         }
         else if(strcmp(command, "connect") == 0)
         {
-            if(listenerPID == 0)
+            if(connected == 0)
             {
+                connected = 1;
                 listenerPID = fork();
                 if(listenerPID == 0)
                 {
-                    printf("dsfs \n");
+                    setpgid(0, 0);
                     listener();
                 }
                 //sendfile(fopen("/home/piotrek/Dokumenty/wtep.odt", "rb" ), NULL);
@@ -165,8 +169,22 @@ int main(int argc, char* argv[])
         }
         else if(strcmp(command, "disconnect") == 0)
         {
-            kill(listenerPID, SIGTERM);
+            if(checkTransfers(shmptr, 0) == 1)
+            {
+                printf("Trwaja transfery. Czy chcesz mimo to zakonczyc tranfery?\n");
+                getline(&command, &sizecommand, stdin );
+                command[strlen(command)-1] ='\0';
+                printf("%s \n", command);
+                if(command[0] != 'T')
+                {
+                    continue;
+                }
+            }
+
+            kill(- listenerPID, SIGKILL);
+            wait();
             printf("disconnected \n");
+            connected = 0;
         }
         else if(strcmp(command, "info") == 0)
         {
@@ -175,11 +193,26 @@ int main(int argc, char* argv[])
             sem_V(semID);
             printf("info \n");
         }
-        else if(strcmp(command,"exit") == 0)
+        else if(strcmp(command, "exit") == 0)
         {
-            kill(0, SIGTERM);
-		closeProgram();
-            //exit(0);
+            if(checkTransfers(shmptr, 1) == 1)
+            {
+                printf("Trwaja transfery. Czy chcesz mimo to zakonczyc?\n");
+                getline(&command, &sizecommand, stdin );
+                command[strlen(command)-1] ='\0';
+                printf("%s \n", command);
+                if(command[0] != 'T')
+                {
+                    continue;
+                }
+            }
+
+            if(connected == 1)
+            {
+                kill(- listenerPID, SIGKILL);
+                wait();
+            }
+            closeProgram();
         }
         else
         {
@@ -600,7 +633,7 @@ void listener()
 
     //struktura do zapisania adresu i portu, skad przyszlo zapytanie o plik
     struct sockaddr_in sourceAddr;
-    socklen_t sourceAddrLenght;
+    socklen_t sourceAddrLenght = sizeof(sourceAddr);
 
     char  address[NI_MAXHOST];
     while (1)
@@ -617,6 +650,17 @@ void listener()
 
         getnameinfo((struct sockaddr*) &sourceAddr, sizeof(struct sockaddr_in),address, NI_MAXHOST, NULL, 0, NI_NUMERICHOST);
         printf("przyszlo zapytanie od %s\n", address);
+
+        //czy dostalismy zapytanie od siebie, czy z zewnatrz
+        if(checkSource(sourceAddr) == 0)
+            printf("Z ZEWNATRZ!\n");
+        else                                    //od siebie, pomijamy
+        {
+            printf("OD SIEBIE\n");
+            continue;
+
+        }
+
         //tworzymy proces do obslugi wyszukiwania zasobu i ewentulnego transferu zasobu
         if (fork() == 0)
         {
@@ -665,7 +709,7 @@ void listener()
                 //wyslanie odpowiedzi, ze zasob jest
                 //WYSYLAMY Z NOWEGO GNIAZDA - WEZEL PYTAJACY DOSTANIE NASZ NOWY ADRES I NOWY PORT
 
-                sleep(3);
+                //sleep(3);
                 sendto(serviceSock, respBuffer, SIZEDATAGRAM, 0, (const struct sockaddr*) &sourceAddr, sizeof(sourceAddr));
 
                 getnameinfo((struct sockaddr*) &sourceAddr, sizeof(struct sockaddr_in),address, NI_MAXHOST, NULL, 0, NI_NUMERICHOST);
@@ -776,10 +820,11 @@ void findNetwork( char* filename)
     // ustawienie adresu
     temp.sin_family = AF_INET;
     temp.sin_addr.s_addr = htonl(INADDR_ANY);
+    //temp.sin_addr.s_addr = inet_addr("192.168.43.223");
 
     temp.sin_port = htons(0);
 
-    if (bind(sockfd, (struct sockaddr *)&temp, sizeof(temp)) == -1)
+   if (bind(sockfd, (struct sockaddr *)&temp, sizeof(temp)) == -1)
     {
         printf("blad funkcji bind listenSock find\n");
         return;
@@ -822,19 +867,13 @@ void findNetwork( char* filename)
             // ale jak bedzie duzo hostow i caly czas negatywna to chyba bedzie slabo
 
             printf("cos dostalem: %s \n", buff);
-        if(checkSource(tmp2) == 0) printf("OK ");
-        else
-        {
-            printf("OD SIEBIE ");
-            continue;
 
-        }
         getnameinfo((struct sockaddr*) &tmp2,sizeof(struct sockaddr_in),host, NI_MAXHOST, NULL, 0, NI_NUMERICHOST);
         printf(" Address : <%s>, ", host);
         if(buff[0] == RESOURCE_FOUND)
         {
             printf("JEST \n");
-            printf("Znaleziono plik. Aby potwierdzic pobranie wpisz 'T' lub 't': \n");
+            printf("Znaleziono plik. Wpisz 'T', aby pobrac lub cokolwiek innego, aby anulowac: \n");
             getline(&resp, &sizeresp, stdin );
             resp[strlen(resp)-1] ='\0';
             printf("%s \n", resp);
@@ -1205,5 +1244,25 @@ int writeToLogFile(Info *temp, int miejsce)
         sem_V(fileSemID);
         return -1;
     }
+}
+
+int checkTransfers(char* shmptr, int which)
+{
+    Info* tmp = (Info*) shmptr;
+    int i;
+    if(which == 1)
+        for(i = 0; i<MAXINFO; i++)
+        {
+            if(tmp[i].status == 1 || tmp[i].status == 3)
+                return 1;
+        }
+    else
+        for(i = 0; i<MAXINFO; i++)
+        {
+            if(tmp[i].status == 3)
+                return 1;
+        }
+
+    return 0;
 }
 
