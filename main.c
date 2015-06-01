@@ -81,6 +81,7 @@ int download(char *fileName, int sockfd, int semId, char *shmptr);
 void closeProgram();
 void info(char* shmptr);
 int checkTransfers(char* shmptr, int which);
+void termination_handler(int signum);
 
 typedef struct
 {
@@ -97,9 +98,17 @@ char *shmptr;
 int shmID;
 
 int connected = 0;
+pid_t listenerPID = 0;
 
 int main(int argc, char* argv[])
 {
+    struct sigaction action;
+
+    action.sa_handler = termination_handler;
+    sigemptyset(&action.sa_mask);
+    action.sa_flags = 0;
+    sigaction (SIGINT, &action, NULL);
+
     // inicjalizuje semafor
     semID = sem_create((int) SEM_KEY);
     sem_init(semID);
@@ -999,9 +1008,7 @@ void createDirectories(char* share, char* download)
 
 }
 
-
-
-void closeProgram(int shmId)
+void closeProgram()
 {
     sem_remove(semID);
 	sem_remove(fileSemID);
@@ -1266,3 +1273,12 @@ int checkTransfers(char* shmptr, int which)
     return 0;
 }
 
+void termination_handler(int signum)
+{
+    if(connected == 1)
+    {
+        kill(- listenerPID, SIGKILL);
+        wait();
+    }
+    closeProgram();
+}
