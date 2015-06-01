@@ -190,7 +190,7 @@ int main(int argc, char* argv[])
                 }
             }
 
-            kill(- listenerPID, SIGKILL);
+            kill(- listenerPID, SIGQUIT);
             wait();
             printf("disconnected \n");
             connected = 0;
@@ -218,8 +218,10 @@ int main(int argc, char* argv[])
 
             if(connected == 1)
             {
-                kill(- listenerPID, SIGKILL);
+                kill(- listenerPID, SIGQUIT);
                 wait();
+                signal(SIGQUIT, SIG_IGN);
+                kill(-getpid(), SIGQUIT);
             }
             closeProgram();
         }
@@ -237,7 +239,7 @@ int main(int argc, char* argv[])
 
 int sendfile(FILE* file, char* filename, struct sockaddr *to, int semId, char *shmptr)
 {
-    int fileSize; // rozmiar pliku
+    long fileSize; // rozmiar pliku
     int datagramNumber; // ilosc datagramow
     int ack; // numer potwierdzanego pakietu
     int sockfd; //socket
@@ -267,7 +269,9 @@ int sendfile(FILE* file, char* filename, struct sockaddr *to, int semId, char *s
     datagramNumber = fileSize / (SIZEDATAGRAM-sizeof(int)); // ilosc datagramow
     if(fileSize % (SIZEDATAGRAM-sizeof(int)) != 0) datagramNumber++; // jesli z reszta to +1
 
-    if(fileSize == 0)   return -1;
+    if(fileSize <= 0)   return -1;
+
+    fileSize = fileSize % (SIZEDATAGRAM-sizeof(int));
 
     buffer = malloc(SIZEDATAGRAM);
     memcpy(buffer, &i, sizeof(int)); // numer ( 0 ) datagramu
@@ -351,7 +355,7 @@ int sendfile(FILE* file, char* filename, struct sockaddr *to, int semId, char *s
         // jesli to ostatni datagram
         if(i == datagramNumber)
         {
-            fread(buffer+sizeof(int), 1, fileSize % (SIZEDATAGRAM-sizeof(int)), file);
+            fread(buffer+sizeof(int), 1, fileSize, file);
         }
         else
         {
@@ -425,7 +429,7 @@ int download(char *fileName, int sockfd, int semId, char *shmptr)
     int whichOne;
     // zlicza ilosc datagramow ktore nadeszly
     int counter;
-    int fileSize, datagramNumber, lastDatagramSize, currentSizeDatagram, index;
+    int datagramNumber, lastDatagramSize, currentSizeDatagram, index;
     Info tmpinfo;
     FILE *fd, *test;
     int offset;
@@ -458,11 +462,8 @@ int download(char *fileName, int sockfd, int semId, char *shmptr)
     }
 
     memcpy(&whichOne, mesg, sizeof(int)); // kopiuje numer datagramu
-    memcpy(&fileSize, mesg + sizeof(int), sizeof(int)); // kopiuje rozmiar pliku
+    memcpy(&lastDatagramSize, mesg + sizeof(int), sizeof(int)); // kopiuje rozmiar pliku
     memcpy(&datagramNumber, mesg + 2*sizeof(int), sizeof(int)); // kopiuje ilosc datagramow
-
-    // obliczam koncowke pliku
-    lastDatagramSize = fileSize % (SIZEDATAGRAM-sizeof(int));
 
     // nr pakietu powinien byc rowny 0
     if(whichOne == 0)
@@ -480,7 +481,7 @@ int download(char *fileName, int sockfd, int semId, char *shmptr)
     sendto(sockfd, ack, sizeof(int), 0, (struct sockaddr *)&client_addr, sizeof(client_addr));
 
     // prymitywne zabezpieczenia
-    if(datagramNumber > 0 && fileSize > 0 && whichOne == 0)
+    if(datagramNumber > 0 && whichOne == 0)
     {
         //uzupelnienie logow
         tmpinfo.status = 1;
@@ -594,12 +595,6 @@ int download(char *fileName, int sockfd, int semId, char *shmptr)
     // prawidłowe zakonczenie
     return 0;
 }
-
-
-
-
-
-
 
 FILE* findResource(char *fileName, char * path)
 {
