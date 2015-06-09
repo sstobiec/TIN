@@ -51,7 +51,7 @@ void createNecessaryFiles(char* path)
 
 void createLogFile(char* path)
 {
-    // char* logFileName = "/logs.txt";
+ 
     logFilePath = malloc(strlen(path) + strlen("/logs.txt") +1);
 
     strcpy(logFilePath, path);
@@ -67,8 +67,6 @@ int writeToLogFile(Info *temp, int miejsce)
     int offset;
     sem_P(fileSemID);
     int fd = open(logFilePath, O_WRONLY);
-
-    //printf("sciezka : %s miejsce: %d\n", logFilePath, miejsce);
 
     time_t now;
     time(&now);

@@ -30,16 +30,6 @@ int main(int argc, char* argv[])
     memcpy(shmptr, buf, MAXINFO*sizeof(Info));
     sem_V(semID);
 
-    /*
-        if(fork() == 0)
-        {
-            char *shmptr1 = (char*)attach_segment( shmID );
-            int a = initSocket();
-            download("/home/sebastian/Pulpit/TIN/ab", a, semID, shmptr1);
-        }
-    */
-
-
     char *command = NULL; // komenda podawana przez uzytkownika
     char *ptr; // wsk na nazwe pliku
     size_t sizecommand; // rozmiar komendy ( nieuzywany - tylko do wywolania getline)
@@ -52,7 +42,6 @@ int main(int argc, char* argv[])
     {
         printf(">");
         getline(&command, &sizecommand, stdin); // pobranie komendy
-        //free(command);
         //zamiana 'entera' na koncu stringa na '\0'
         if (command [ strlen(command) - 1 ] == '\n' )
             command [ strlen(command) - 1 ] = '\0';
@@ -76,8 +65,7 @@ int main(int argc, char* argv[])
                 continue;
             }
             *temp = '\0';
-
-            // jak beda 2 spacje albo spacja przed find to juz dzialac nie bedzie - takze nad tym mozna pomyslec
+        
             printf("Nazwa pliku %s\n", ptr+1);
             findNetwork(ptr+1);
             free(command);
@@ -96,7 +84,6 @@ int main(int argc, char* argv[])
                     setpgid(0, 0);
                     listener();
                 }
-                //sendfile(fopen("/home/piotrek/Dokumenty/wtep.odt", "rb" ), NULL);
                 else printf("connected \n");
             }
             else printf("already connected \n");

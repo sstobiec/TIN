@@ -12,7 +12,7 @@ int sendfile(FILE* file, char* filename, struct sockaddr *to, int semId, char *s
     int ack; // numer potwierdzanego pakietu
     int sockfd; //socket
     int i = 0; // iterator po datagramach
-    char * buffer; // buforach dla danych = malloc(SIZEDATAGRAM); // buforach dla danych
+    char * buffer; // buforach dla danych 
     int index;
     Info tmpinfo;
     FILE* test;
@@ -25,7 +25,6 @@ int sendfile(FILE* file, char* filename, struct sockaddr *to, int semId, char *s
     if(file == NULL)    return -1;
 
     struct timeval sendtimeout; // ustawiamy timeout
-   // sendtimeout.tv_sec = 3;
     sendtimeout.tv_sec = 2;
     sendtimeout.tv_usec = 500000;
 
@@ -93,7 +92,6 @@ int sendfile(FILE* file, char* filename, struct sockaddr *to, int semId, char *s
     for(i =1; i <= datagramNumber; ++i)
     {
 
-        // interpretacja autora :
         // co 10 przebieg sprawdzamy czy plik nie zostal usuniety
         if(i % 10 == 10)
         {
@@ -113,7 +111,7 @@ int sendfile(FILE* file, char* filename, struct sockaddr *to, int semId, char *s
             fclose(test);
         }
 
-        // przemieszamy sie po pliku
+        // przemieszczamy sie po pliku
         fseek(file, (SIZEDATAGRAM-sizeof(int))*(i-1), SEEK_SET);
 
         // jesli to ostatni datagram
@@ -162,9 +160,6 @@ int sendfile(FILE* file, char* filename, struct sockaddr *to, int semId, char *s
         tmpinfo.progress = (i*1.0 / datagramNumber) * 100;
         sem_P(semId);
         memcpy(shmptr+index*sizeof(Info), &tmpinfo, sizeof(Info));
-        // info tutaj tylko po to zeby pokazac, ze dziala, w wersji finalnej do wywalenia
-       // info(shmptr);
-        //////////////////////////
         sem_V(semId);
 
     }
@@ -207,12 +202,10 @@ int download(char *fileName, int sockfd, int semId, char *shmptr, struct sockadd
 
     // ustawiamy timeout
     struct timeval sendtimeout;
-    //sendtimeout.tv_sec = 10;
     sendtimeout.tv_sec = 3;
     sendtimeout.tv_usec = 0;
 
-
-    // nie moge wczesniej właczyć blokowania bo nie wiemy kiedy nadejdzie pierwsza porcja danych
+  
     //ustawienie funkcji socketa - timeout'u
     setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO,&sendtimeout,sizeof(sendtimeout));
 
@@ -247,7 +240,6 @@ int download(char *fileName, int sockfd, int semId, char *shmptr, struct sockadd
     memcpy(&lastDatagramSize, mesg + sizeof(int), sizeof(int)); // kopiuje rozmiar pliku
     memcpy(&datagramNumber, mesg + 2*sizeof(int), sizeof(int)); // kopiuje ilosc datagramow
 
-    // prymitywne zabezpieczenia
     if(datagramNumber > 0 && whichOne == 0)
     {
         //uzupelnienie logow
@@ -269,7 +261,6 @@ int download(char *fileName, int sockfd, int semId, char *shmptr, struct sockadd
 
         for(counter = 1; counter <= datagramNumber;)
         {
-            // interpretacja autora :
             // co 10 przebieg sprawdzamy czy plik nie zostal usuniety
             if(counter % 10 == 0)
             {
@@ -280,7 +271,6 @@ int download(char *fileName, int sockfd, int semId, char *shmptr, struct sockadd
                     sem_P(semId);
                     memcpy(shmptr+index*sizeof(Info), &tmpinfo, sizeof(Info));
                     sem_V(semId);
-                   // close(sockfd);
                     fclose(test);
                     free(mesg);
                     return -2;
@@ -296,9 +286,6 @@ int download(char *fileName, int sockfd, int semId, char *shmptr, struct sockadd
             //powtarzanie potwierdzen
             for(i = 0; i < 5 ; ++i)
             {
-
-                //odebralismy ostatni pakiet, wysylamy jego potwierdzenie
-
 
                 packetAck = counter -1;
                 // wyslanie potwierdzenia poprzedniego pakietu
@@ -347,7 +334,7 @@ int download(char *fileName, int sockfd, int semId, char *shmptr, struct sockadd
         }
     }
 
-    //odebralismy ostatni pakiet, wysylamy tylko potwierdzenie i nara
+    //odebralismy ostatni pakiet, wysylamy tylko potwierdzenie
     sendto(sockfd, &datagramNumber, sizeof(int), 0, (struct sockaddr *)&client_addr, sizeof(client_addr));
     sendto(sockfd, &datagramNumber, sizeof(int), 0, (struct sockaddr *)&client_addr, sizeof(client_addr));
 
@@ -359,7 +346,6 @@ int download(char *fileName, int sockfd, int semId, char *shmptr, struct sockadd
     writeToLogFile(&tmpinfo, offset);
 
     fclose(fd);
-    // close(sockfd);
     // zwolnienie zaalokowanej pamieci
     free(mesg);
     // prawidłowe zakonczenie
@@ -396,7 +382,6 @@ void listener()
     struct sockaddr_in listenAddr;
     listenAddr.sin_family = AF_INET;
     listenAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    //listenAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
     listenAddr.sin_port = htons(LISTENPORT);
 
     if (bind(listenSock, (struct sockaddr *)&listenAddr, sizeof(struct sockaddr)) == -1)
@@ -413,7 +398,6 @@ void listener()
     while (1)
     {
         //odbiera zapytanie o dany plik, zapisuje do struktury adres i port wezla, ktory pytal
-        //inet_ntop(AF_INET, ((const struct sockaddr_in*) &sourceAddr)->sin_addr, address, INET_ADDRSTRLEN);
         // printf("przyszlo zapytanie od %s\n", address);
         if (recvfrom(listenSock, listenBuffer, SIZEDATAGRAM, 0,(struct sockaddr*) &sourceAddr, &sourceAddrLenght) < 0)
         {
@@ -430,17 +414,11 @@ void listener()
         //tworzymy proces do obslugi wyszukiwania zasobu i ewentulnego transferu zasobu
         if (fork() == 0)
         {
-
-            //struct sockaddr_in sendAddr;
-            //socklen_t sendAddrLength;
-            //sendAddrLength = sourceAddrLenght;
-            //memcpy(&sendAddr, &sourceAddr, sendAddrLength);
-
             //nazwa zasobu
             char * fileName = malloc(SIZEDATAGRAM);
             memcpy(&fileName, &listenBuffer, strlen(listenBuffer)+1);
             //printf(" dostalem %s \n", fileName);
-            //chyba tego nie potrzebujemy w tym procesie, mozemy zamknac?
+     
             close(listenSock);
 
             //bufor na odpowiedz czy jest zasob czy nie
@@ -471,19 +449,16 @@ void listener()
             {
                 respBuffer[0] = RESOURCE_FOUND;
 
-                //if(respBuffer[0] == RESOURCE_FOUND) printf("tak \n");
-                //wyslanie odpowiedzi, ze zasob jest
+                 //wyslanie odpowiedzi, ze zasob jest
                 //WYSYLAMY Z NOWEGO GNIAZDA - WEZEL PYTAJACY DOSTANIE NASZ NOWY ADRES I NOWY PORT
 
-                //sleep(3);
                 sendto(serviceSock, respBuffer, SIZEDATAGRAM, 0, (const struct sockaddr*) &sourceAddr, sizeof(sourceAddr));
 
                 getnameinfo((struct sockaddr*) &sourceAddr, sizeof(struct sockaddr_in),address, NI_MAXHOST, NULL, 0, NI_NUMERICHOST);
                // printf("wyslalem potw do %s \n", address);
 
                 struct timeval sendtimeout; // ustawiamy timeout
-                //sendtimeout.tv_sec = 12;
-                 sendtimeout.tv_sec = 10;
+                sendtimeout.tv_sec = 10;
                 sendtimeout.tv_usec = 0;
 
                 // ustawienie opcji - timeout
@@ -501,25 +476,20 @@ void listener()
                 {
                     getnameinfo((struct sockaddr*) &sourceAddr, sizeof(struct sockaddr_in),address, NI_MAXHOST, NULL, 0, NI_NUMERICHOST);
                    // printf("dostalem potw od %s \n", address);
-                }
+                
 
                 //wysylanie pliku
-                //sendfile(file,(struct sockaddr *) &sourceAddr);
                 char* shmptr1;
                 shmptr1 = (char*)attach_segment( shmID );
                 sendfile(file, fileName, (struct sockaddr *) &sourceAddr, semID, shmptr1);
                 fclose(file);
+		}
             }
             else
                 //nie ma
             {
-                //	respBuffer[0] = RESOURCE_NOT_FOUND;
+              
 
-
-                //wyslanie odpowiedzi, ze zasobu nie ma
-                //WYSYLAMY Z NOWEGO GNIAZDA - WEZEL PYTAJACY DOSTANIE NASZ NOWY ADRES I NOWY PORT
-                ////	sendto(serviceSock, respBuffer, sizeof(char), 0, (const struct sockaddr*) &sourceAddr, sourceAddrLenght);
-                //	getnameinfo((struct sockaddr*) &sourceAddr, sizeof(struct sockaddr_in),address, NI_MAXHOST, NULL, 0, NI_NUMERICHOST);
                 //printf("pliku nie ma, nic nie wysylam do %s\n",address);
 
             }
@@ -534,7 +504,7 @@ void listener()
         //rodzic
         else
         {
-            //chyba nic nie robimy - przechodzimy do nasluchiwania na kolejne zapytanie o zasob
+            // przechodzimy do nasluchiwania na kolejne zapytanie o zasob
            // printf("listen nasluchuje nastepnego zapytania\n");
 
         }
@@ -563,7 +533,6 @@ void findNetwork( char* filename)
     char * shmptr1;         //wskaznik na wspolna pamiec
 
     struct timeval sendtimeout; // ustawiamy timeout
-    //sendtimeout.tv_sec = 4;
     sendtimeout.tv_sec = 10;
     sendtimeout.tv_usec = 0;
 
@@ -572,7 +541,7 @@ void findNetwork( char* filename)
     if(sockfd == -1)
     {
         printf("Socket creating error. \n");
-        // return NULL;
+         return;
     }
 
     // ustawienie opcji - broadcastu
@@ -586,7 +555,6 @@ void findNetwork( char* filename)
     // ustawienie adresu
     temp.sin_family = AF_INET;
     temp.sin_addr.s_addr = htonl(INADDR_ANY);
-    //temp.sin_addr.s_addr = inet_addr("192.168.43.223");
 
     temp.sin_port = htons(0);
 
@@ -602,23 +570,14 @@ void findNetwork( char* filename)
     socklen_t len = sizeof(tmp2);
     // ustawienie adresu
     bc_addr.sin_family = AF_INET;
-   bc_addr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
-   //bc_addr.sin_addr.s_addr = inet_addr("25.80.204.68");
+    bc_addr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
     bc_addr.sin_port = htons(LISTENPORT);
-
-   /* int i;
-    for(i =0; i<3; i++)
-    {
-        if(i<0)             //jak duzo pakietow z dupy
-            i=0;*/
 
         // wyslanie zapytania z nazwa pliku
         sendto(sockfd, filename, strlen(filename)+1,0, (struct sockaddr *)&bc_addr, sizeof(bc_addr) );
 
-        //printf("wyslane proba %d \n", i);
         // ustawienie opcji - timeout
 
-        // tutaj chyba trzeba to zrobic inaczej
         if(recvfrom(sockfd, buff, SIZEDATAGRAM, 0, (struct sockaddr*)&tmp2, &len ) < 0) // jesli po 3 sek nie ma odpowiedzi
         {
 
@@ -627,20 +586,15 @@ void findNetwork( char* filename)
 
         }
         else
-        {// jesli odpowiedz jest pozytywna wychodzimy z petli
-            // ale jak bedzie duzo hostow i caly czas negatywna to chyba bedzie slabo
-
-           // printf("cos dostalem: %s \n", buff);
+        {
 
         getnameinfo((struct sockaddr*) &tmp2,sizeof(struct sockaddr_in),host, NI_MAXHOST, NULL, 0, NI_NUMERICHOST);
         printf("Address : <%s> \n", host);
         if(buff[0] == RESOURCE_FOUND)
         {
-         //   printf("JEST \n");
             printf("Znaleziono plik. Wpisz 'T', aby pobrac lub cokolwiek innego, aby anulowac: \n");
             getline(&resp, &sizeresp, stdin );
             resp[strlen(resp)-1] ='\0';
-           // printf("%s \n", resp);
             if(resp[0] == TRANSFER_ACK)
             {
                 if(fork()== 0)
@@ -650,7 +604,7 @@ void findNetwork( char* filename)
                     close(sockfd);
                     free(buff);
                     free(resp);
-                    //koniec watku pobierajacego
+                    //koniec procesu
                     exit(0);
                 }
         }
@@ -663,7 +617,7 @@ void findNetwork( char* filename)
     return;
 }
 
-
+// sprawdzenie czy pakiet został wysłany z jednego z naszych interfejsów
 int checkSource(struct sockaddr_in from)
 {
     int result;
@@ -737,7 +691,6 @@ void info(char* shmptr)
     printf("******************************************\n");
 }
 
-// gowniane rozwiazanie, malo wydajne ale liczy :p
 // wyszukuje wolny indeks w obszarze pamieci dzielonej
 int findIndex(char *shmptr)
 {

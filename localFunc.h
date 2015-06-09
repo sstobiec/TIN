@@ -15,7 +15,6 @@
 
 #define TRANSFER_ACK 'T'
 
-#define MYPORT 32005             // do zmiany!!!
 #define ROZM_PAM 4096       // jezeli rozmiar jest wiekszy to nie dziala bo jakies ograniczenia sa
 #define SHM_ID 1234
 #define SEM_KEY 1111
@@ -27,7 +26,7 @@
 #define ANSI_COLOR_RESET    "\x1b[0m"
 
 char fname[300];
-Info buf[MAXINFO];      // jak globalnie to nie ma smieci
+Info buf[MAXINFO];      
 int semID;
 int fileSemID;
 char *shmptr;

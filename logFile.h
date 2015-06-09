@@ -1,6 +1,6 @@
 #ifndef LOGFILE_H
 #define LOGFILE_H
-
+#include <time.h>
 typedef struct
 {
     int status;         // status 0 - wolny, 1 - w trakcie sciagania, 2 - sciagniete, 3 - w trakcie wysylania, 4 - wyslane
